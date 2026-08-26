@@ -39,14 +39,10 @@ pub trait LogParser {
     fn check_access(&self, path: &Path) -> Result<(), ParseError> {
         match File::open(path) {
             Ok(_) => Ok(()),
-            Err(e) if e.kind() == ErrorKind::NotFound => Err(ParseError::MalformedLine(format!(
-                "Path doesn't exists or was moved: {:#?}",
-                path
-            ))),
+            Err(e) if e.kind() == ErrorKind::NotFound => Err(ParseError::IoError(format!(
+                "Path doesn't exists or was moved: {path:?}"))),
             Err(e) => Err(ParseError::IoError(format!(
-                "Cannot open path {:#?} due to error: {e}",
-                path
-            ))),
+                "Cannot open path {path:?} due to error: {e}"))),
         }
     }
 }
@@ -64,7 +60,7 @@ pub trait JournalParser {
             }
         }
         opts.open()
-            .map_err(|e| JournalError::Unavailable(format!("Cannot connect the journal socket due to error: {e:#?}")))
+            .map_err(|e| JournalError::Unavailable(format!("Cannot connect the journal socket due to: {e}")))
     }
     fn parser(&self, journal: &mut Journal) -> Result<Vec<LogEntry>, JournalError>;
 }

@@ -23,7 +23,7 @@ impl JournalParser for JournalLog {
             let record = extract_record(journal)
 		.map_err(|e| {
 		    JournalError::FieldMissing(format!("Could not extract the record from journal line due to error: {e:#?}"))})?;
-            entries.push(LogEntry::Journal(record));
+            entries.push(LogEntry::Journal(Box::new(record)));
         }
         Ok(entries)
     }
