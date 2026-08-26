@@ -17,7 +17,7 @@ impl LogParser for AuthLog {
         let sec_pattern = Regex::new(r"^(?:<(?P<pri>\d+)>)?(?P<timestamp>(?P<month>[A-Za-z]{3})\s+(?P<day>\d{1,2})\s+(?P<time>\d{2}:\d{2}:\d{2}))\s+(?P<host>\S+)\s+(?P<process>[^\[:]+)(?:\[(?P<pid>\d+)\])?:\s*(?:(?P<caller>[^:]+):\s*)?(?P<msg>.*)$").unwrap();
 
         let f = File::open(path).map_err(|e| {
-            ParseError::IoError(format!("Cannot open file at {:#?} due to: {e}", path))
+            ParseError::IoError(format!("Cannot open file at {path:#?} due to error: {e}"))
         })?;
 
         let mut bufr = BufReader::new(f);
@@ -26,14 +26,12 @@ impl LogParser for AuthLog {
         let mut entries: Vec<LogEntry> = Vec::new();
         while bufr.read_line(&mut bufl).map_err(|e| {
             ParseError::MalformedLine(format!(
-                "Error ocurred during file reading at {:#?}: {e}",
-                path
-            ))
+                "Error ocurred during file reading at {path:#?}: {e}"))
         })? > 0
         {
             let trimmed_bufl = bufl.trim_end();
             entries.push(LogEntry::Auth(
-                parse_re(&sec_pattern, trimmed_bufl).unwrap(),
+                parse_re(&sec_pattern, trimmed_bufl).expect("Cannot get the information line."),
             ));
             bufl.clear();
         }

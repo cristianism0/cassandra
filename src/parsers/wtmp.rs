@@ -13,10 +13,8 @@ impl LogParser for WtmpLog {
         })?;
         let meta = f.metadata().map_err(|e| {
             ParseError::IoError(format!(
-                "Cannot traverse path: {:#?}. Due to error {e}.",
-                path
-            ))
-        })?;
+                "Cannot traverse path: {path:#?}. Due to error {e}."))
+	})?;
         let file_len = meta.len();
 
         if file_len < cursor {
@@ -27,31 +25,31 @@ impl LogParser for WtmpLog {
 
         if file_len > cursor {
             f.seek(SeekFrom::Start(cursor))
-                .map_err(|e| ParseError::IoError(format!("Journal seek error {e}")))?;
+                .map_err(|e| ParseError::IoError(format!("Journal seek error: {e}")))?;
             let mut buf = vec![0u8; (file_len - cursor) as usize];
             f.read_exact(&mut buf).map_err(|e| {
-                ParseError::IoError(format!("Cannot read journald due to error: {e}"))
+                ParseError::MalformedLine(format!("Cannot read journald line due to error: {e}"))
             })?;
 
             for r in buf.chunks_exact(384) {
-                entries.push(LogEntry::Wtmp(parse_record(r)));
+                entries.push(LogEntry::Wtmp(parse_record(r).expect("Failed to collect the Wtmp line info.")));
             }
         }
 
         Ok(entries)
     }
 }
-fn parse_record(buffer: &[u8]) -> WtmpRecord {
-    WtmpRecord {
-        ut_type: i16::from_ne_bytes(buffer[0..2].try_into().unwrap()),
-        ut_pid: i32::from_ne_bytes(buffer[4..8].try_into().unwrap()),
+fn parse_record(buffer: &[u8]) -> Option<WtmpRecord> {
+    Some(WtmpRecord {
+        ut_type: i16::from_ne_bytes(buffer[0..2].try_into().unwrap_or_default()),
+        ut_pid: i32::from_ne_bytes(buffer[4..8].try_into().unwrap_or_default()),
         ut_dname: bytes_to_string(&buffer[8..40]),
         ut_id: bytes_to_string(&buffer[40..44]),
         ut_user: bytes_to_string(&buffer[44..76]),
         ut_host: bytes_to_string(&buffer[76..332]),
-        e_termination: i16::from_ne_bytes(buffer[332..334].try_into().unwrap()),
-        e_exit: i16::from_ne_bytes(buffer[334..336].try_into().unwrap()),
-    }
+        e_termination: i16::from_ne_bytes(buffer[332..334].try_into().unwrap_or_default()),
+        e_exit: i16::from_ne_bytes(buffer[334..336].try_into().unwrap_or_default()),
+    })
 }
 
 fn bytes_to_string(raw: &[u8]) -> String {

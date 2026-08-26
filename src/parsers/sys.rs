@@ -28,7 +28,7 @@ impl LogParser for SysLog {
         })? > 0
         {
             let trimmed_bufl = bufl.trim_end();
-            entries.push(LogEntry::Sys(parse_re(&sec_pattern, trimmed_bufl).unwrap()));
+            entries.push(LogEntry::Sys(parse_re(&sec_pattern, trimmed_bufl).expect("Cannot get the information line.")));
             bufl.clear();
         }
         Ok(entries)

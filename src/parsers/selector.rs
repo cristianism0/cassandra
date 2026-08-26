@@ -64,7 +64,7 @@ pub trait JournalParser {
             }
         }
         opts.open()
-            .map_err(|e| JournalError::Unavailable(e.to_string()))
+            .map_err(|e| JournalError::Unavailable(format!("Cannot connect the journal socket due to error: {e:#?}")))
     }
     fn parser(&self, journal: &mut Journal) -> Result<Vec<LogEntry>, JournalError>;
 }

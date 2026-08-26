@@ -3,7 +3,7 @@ use std::io::ErrorKind;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::Path;
 
-use crate::models::{SourceCandidate, Finfo, PathStatus, FiData, LogSource, FsKind, ContentFormat, FileError};
+use crate::models::{SourceCandidate, Finfo, PathStatus, FiData, LogSource, FsKind, ContentFormat};
 
 impl Finfo {
     pub fn gather_info(sc: &SourceCandidate) -> Finfo {
@@ -13,7 +13,7 @@ impl Finfo {
             Ok(file) => {
                 let meta = file
                     .metadata()
-                    .expect("Metadata handle oppened. Shouldn't fail.");
+                    .expect("Unexpected error ocurred during the metadata collect on path: {path:#?}");
                 Finfo {
                     path: path.to_path_buf(),
                     source: sc.source,
