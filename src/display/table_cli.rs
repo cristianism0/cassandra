@@ -7,7 +7,7 @@ use tabled::{
     settings::{Remove, Style, Width, object::Columns},
 };
 
-const JOURNAL_KERNEL_COL: [&'static str; 11] = [
+const JOURNAL_KERNEL_COL: [&str; 11] = [
     "MESSAGE",
     "PRIORITY",
     "SYSLOG_FACILITY",

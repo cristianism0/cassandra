@@ -28,8 +28,8 @@ pub fn parser_selector(file_info: Finfo) -> Result<Vec<LogEntry>, ParseError> {
 
 pub fn journal_parsed(journal_scope: JournalScope) -> Result<Vec<LogEntry>, JournalError> {
     let j = journal::JournalLog;
-    let mut jc = j.connect(journal_scope).unwrap();
-    let jentry = j.parser(&mut jc).unwrap();
+    let mut jc = j.connect(journal_scope)?;
+    let jentry = j.parser(&mut jc)?;
     Ok(jentry)
 }
 

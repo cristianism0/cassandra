@@ -3,7 +3,7 @@ use std::io::ErrorKind;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::Path;
 
-use crate::models::*;
+use crate::models::{SourceCandidate, Finfo, PathStatus, FiData, LogSource, FsKind, ContentFormat, FileError};
 
 impl Finfo {
     pub fn gather_info(sc: &SourceCandidate) -> Finfo {

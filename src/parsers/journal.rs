@@ -8,18 +8,21 @@ pub struct JournalLog;
 
 impl JournalParser for JournalLog {
     fn parser(&self, journal: &mut Journal) -> Result<Vec<LogEntry>, JournalError> {
-        journal.seek_tail().map_err(|e| JournalError::IoError(e))?;
+        journal.seek_tail()
+	    .map_err(|e| {JournalError::IoError(format!("Cannot read the journal during the parser due to error: {e:#?}"))})?;
         journal
             .previous_skip(50) // for now
-            .map_err(|e| JournalError::IoError(e))?;
+            .map_err(|e| JournalError::IoError(format!("Cannot read the journal's lines during the parser due to error: {e:#?}")))?;
 
         let mut entries = Vec::new();
         while journal
             .next_entry()
-            .map_err(|e| JournalError::IoError(e))?
+            .map_err(|e| JournalError::IoError(format!("An error ocurred during the journal lines parsing: {e:#?}")))?
             .is_some()
         {
-            let record = extract_record(journal)?;
+            let record = extract_record(journal)
+		.map_err(|e| {
+		    JournalError::FieldMissing(format!("Could not extract the record from journal line due to error: {e:#?}"))})?;
             entries.push(LogEntry::Journal(record));
         }
         Ok(entries)

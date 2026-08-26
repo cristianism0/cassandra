@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use tabled::Tabled;
 
 // -------- Misc ---------
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LogSource {
     Auth,
     Sys,
@@ -26,7 +26,7 @@ pub enum TableKey {
     Wtmp,
     Journal,
 }
-
+#[derive(Debug)]
 pub enum TableMode {
     Standard,
     Compact {
@@ -124,6 +124,12 @@ pub enum PathStatus {
 }
 
 #[derive(Debug)]
+pub enum FileError {
+    IoError(String),
+    TraverseError(String),
+}
+
+#[derive(Debug)]
 pub enum ParseError {
     IoError(String),
     MalformedLine(String),
@@ -132,7 +138,7 @@ pub enum ParseError {
 
 #[derive(Debug)]
 pub enum JournalError {
-    IoError(Error),
+    IoError(String),
     FieldMissing(String), // ENODATA
     NotPositioned,        // EADDRNOTAVAIL
     Unavailable(String),
