@@ -26,10 +26,10 @@ pub fn parser_selector(file_info: Finfo, lines: Option<u64>, reverse: bool) -> R
     }
 }
 
-pub fn journal_parsed(journal_scope: JournalScope) -> Result<Vec<LogEntry>, JournalError> {
+pub fn journal_parsed(journal_scope: JournalScope, lines: Option<u64>, reverse: bool) -> Result<Vec<LogEntry>, JournalError> {
     let j = journal::JournalLog;
     let mut jc = j.connect(journal_scope)?;
-    let jentry = j.parser(&mut jc)?;
+    let jentry = j.parser(&mut jc, lines, reverse)?;
     Ok(jentry)
 }
 
@@ -62,5 +62,5 @@ pub trait JournalParser {
         opts.open()
             .map_err(|e| JournalError::Unavailable(format!("Cannot connect the journal socket due to: {e}")))
     }
-    fn parser(&self, journal: &mut Journal) -> Result<Vec<LogEntry>, JournalError>;
+    fn parser(&self, journal: &mut Journal, lines: Option<u64>, reverse: bool) -> Result<Vec<LogEntry>, JournalError>;
 }

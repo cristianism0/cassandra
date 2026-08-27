@@ -17,7 +17,7 @@ struct ArgsC {
     #[arg(long, group = "display", global = true)]
     standard: bool,
 
-    // TODO: all this below -> lines, reverse, rows, gravity, search
+    // TODO: still to wire -> rows, gravity, search
     #[arg(long, value_delimiter=',', global=true)]
     rows: Option<Vec<String>>,
     #[arg(short, long, global=true)]
@@ -72,24 +72,33 @@ fn table_cli_args() -> ArgsC {
 
 pub fn run_cli() {
     let args = table_cli_args();
+    let l : Option<u64> = match args.lines {
+	Some(0) => {
+	    eprintln!("There's no line to parse, try to use a number greater than 0!");
+	    exit(2);
+	}
+	Some(n) => Some(n),
+	None => None,
+    };
+
     let tmode = args.table_mode().unwrap_or(TableMode::Standard);
 
     let revs = args.reverse.unwrap_or(false);
 
-    // TODO: all this below -> lines, reverse, rows, gravity, search
+    // TODO: still to wire -> rows, gravity, search
 
     match args.log {
         LogKey::Sys => {
-            print_table::<SysRecord>(&tmode, LogSource::Sys, args.lines, revs);
+            print_table::<SysRecord>(&tmode, LogSource::Sys, l, revs);
         }
         LogKey::Auth => {
-            print_table::<AuthRecord>(&tmode, LogSource::Auth, args.lines, revs);
+            print_table::<AuthRecord>(&tmode, LogSource::Auth, l, revs);
         }
         LogKey::Wtmp => {
-            print_table::<WtmpRecord>(&tmode, LogSource::Wtmp, args.lines, revs);
+            print_table::<WtmpRecord>(&tmode, LogSource::Wtmp, l, revs);
         }
         LogKey::Journal { scope, .. } => {
-            let j = match journal_parsed(scope) {
+            let j = match journal_parsed(scope, l, revs) {
                 Ok(le) => le,
 		Err(e) =>{
 		eprintln!("Error: Cannot retrieve information from the journal.\nDetails: {e:#?}");
@@ -119,7 +128,7 @@ where
 	}
     };
 
-    // TODO: in the parser will enter the following args: lines, reverse, rows, gravity enum
+    // TODO: still to wire in the parser -> rows, gravity enum
     let ret = match parser_selector(vf, lines, reverse) {
 	Ok(e) => e,
 	Err(e) => match e {
