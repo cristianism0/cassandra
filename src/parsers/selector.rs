@@ -6,22 +6,22 @@ use systemd::journal::{Journal, OpenOptions};
 use crate::models::{Finfo, JournalError, JournalScope, LogEntry, LogSource, ParseError};
 use crate::parsers::*;
 
-pub fn parser_selector(file_info: Finfo) -> Result<Vec<LogEntry>, ParseError> {
+pub fn parser_selector(file_info: Finfo, lines: Option<u64>, reverse: bool) -> Result<Vec<LogEntry>, ParseError> {
     match file_info.source {
         LogSource::Sys => {
             let p = sys::SysLog;
             p.check_access(&file_info.path)?;
-            p.parser(&file_info.path)
+            p.parser(&file_info.path, lines, reverse)
         }
         LogSource::Auth => {
             let p = auth::AuthLog;
             p.check_access(&file_info.path)?;
-            p.parser(&file_info.path)
+            p.parser(&file_info.path, lines, reverse)
         }
         LogSource::Wtmp => {
             let p = wtmp::WtmpLog;
             p.check_access(&file_info.path)?;
-            p.parser(&file_info.path)
+            p.parser(&file_info.path, lines, reverse)
         }
     }
 }
@@ -34,7 +34,7 @@ pub fn journal_parsed(journal_scope: JournalScope) -> Result<Vec<LogEntry>, Jour
 }
 
 pub trait LogParser {
-    fn parser(&self, path: &Path) -> Result<Vec<LogEntry>, ParseError>;
+    fn parser(&self, path: &Path, lines: Option<u64>, reverse: bool) -> Result<Vec<LogEntry>, ParseError>;
 
     fn check_access(&self, path: &Path) -> Result<(), ParseError> {
         match File::open(path) {

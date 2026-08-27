@@ -2,7 +2,7 @@ use crate::models::{AuthRecord, LogEntry, ParseError};
 use crate::parsers::selector::LogParser;
 use regex::Regex;
 use std::io::{BufRead, BufReader};
-use std::{fs::File, path::Path};
+use std::{fs::File, path::Path, collections::VecDeque};
 
 pub struct AuthLog;
 
@@ -13,29 +13,54 @@ pub struct AuthLog;
 // display.
 
 impl LogParser for AuthLog {
-    fn parser(&self, path: &Path) -> Result<Vec<LogEntry>, ParseError> {
-        let sec_pattern = Regex::new(r"^(?:<(?P<pri>\d+)>)?(?P<timestamp>(?P<month>[A-Za-z]{3})\s+(?P<day>\d{1,2})\s+(?P<time>\d{2}:\d{2}:\d{2}))\s+(?P<host>\S+)\s+(?P<process>[^\[:]+)(?:\[(?P<pid>\d+)\])?:\s*(?:(?P<caller>[^:]+):\s*)?(?P<msg>.*)$").unwrap();
+    fn parser(&self, path: &Path, lines: Option<u64>, reverse: bool) -> Result<Vec<LogEntry>, ParseError> {
+	if let Some(0) = lines {
+	    return Ok(Vec::new());
+	}
 
-        let f = File::open(path).map_err(|e| {
-            ParseError::IoError(format!("Cannot open file at {path:?} due to: {e}"))
-        })?;
+	let sec_pattern = Regex::new(r"^(?:<(?P<pri>\d+)>)?(?P<timestamp>(?P<month>[A-Za-z]{3})\s+(?P<day>\d{1,2})\s+(?P<time>\d{2}:\d{2}:\d{2}))\s+(?P<host>\S+)\s+(?P<process>[^\[:]+)(?:\[(?P<pid>\d+)\])?:\s*(?:(?P<caller>[^:]+):\s*)?(?P<msg>.*)$").unwrap();
 
-        let mut bufr = BufReader::new(f);
-        let mut bufl = String::new();
+	let f = File::open(path).map_err(|e| {
+	    ParseError::IoError(format!("Cannot open file at {path:?} due to: {e}"))
+	})?;
 
-        let mut entries: Vec<LogEntry> = Vec::new();
-        while bufr.read_line(&mut bufl).map_err(|e| {
-            ParseError::MalformedLine(format!(
-                "File with malformed line was found while reading log file at {path:?}: {e}"))
-        })? > 0
-        {
-            let trimmed_bufl = bufl.trim_end();
-            entries.push(LogEntry::Auth(
-                parse_re(&sec_pattern, trimmed_bufl).expect("Cannot get the information line."),
-            ));
-            bufl.clear();
-        }
-        Ok(entries)
+	let mut bufr = BufReader::new(f);
+	let mut bufl = String::new();
+
+	let limit = lines.map(|n| n as usize);
+	let mut deque = match limit {
+	    Some(n) => VecDeque::with_capacity(n),
+	    None => VecDeque::new(),
+	};
+
+	while bufr.read_line(&mut bufl).map_err(|e| {
+	    ParseError::MalformedLine(format!(
+		"File with malformed line was found while reading log file at {path:?}: {e}"))
+	})? > 0
+	{
+	    let entry = LogEntry::Auth(
+		parse_re(&sec_pattern, bufl.trim_end()).expect("Cannot get the information line.")
+	    );
+
+	    if let Some(n) = limit {
+		if deque.len() == n {
+		    deque.pop_front();
+		}
+	    }
+
+	    deque.push_back(entry);
+	    bufl.clear();
+	}
+
+	let mut entries = Vec::with_capacity(deque.len());
+
+	if reverse {
+	    entries.extend(deque.into_iter().rev());
+	} else {
+	    entries.extend(deque.into_iter());
+	}
+
+	Ok(entries)
     }
 }
 
