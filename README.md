@@ -15,7 +15,7 @@ Lunete is rust-based CLI application that can be used for read linux system logs
 
 ### Design Decisions
 - RFC 3164 (BSD Syslog) - Legacy
-This RFC is obsolete and was substituted for RFC 5424. Yet, for a more easier approach, for local information, the legacy RFC 3164 still being using in most Linux Distributions. This project supports only RFC 3164 only.
+This RFC is obsolete and was substituted for RFC 5424. Yet, for a more easier approach, for local information, the legacy RFC 3164 still being using in most Linux Distributions. This project supports RFC 3164 only.
 - CLI first, TUI async after. *Coming soon!*
 
 ## Building from source
