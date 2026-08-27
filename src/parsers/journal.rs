@@ -7,24 +7,64 @@ use systemd::journal::Journal;
 pub struct JournalLog;
 
 impl JournalParser for JournalLog {
-    fn parser(&self, journal: &mut Journal) -> Result<Vec<LogEntry>, JournalError> {
-        journal.seek_tail()
-	    .map_err(|e| {JournalError::IoError(format!("Cannot read the journal during the parser due to error: {e:#?}"))})?;
-        journal
-            .previous_skip(50) // for now
-            .map_err(|e| JournalError::IoError(format!("Cannot read the journal's lines during the parser due to error: {e:#?}")))?;
-
-        let mut entries = Vec::new();
-        while journal
-            .next_entry()
-            .map_err(|e| JournalError::IoError(format!("An error ocurred during the journal lines parsing: {e:#?}")))?
-            .is_some()
-        {
-            let record = extract_record(journal)
-		.map_err(|e| {
-		    JournalError::FieldMissing(format!("Could not extract the record from journal line due to error: {e:#?}"))})?;
-            entries.push(LogEntry::Journal(Box::new(record)));
+    fn parser(&self, journal: &mut Journal, lines: Option<u64>, reverse: bool) -> Result<Vec<LogEntry>, JournalError> {
+        if let Some(0) = lines {
+            return Ok(Vec::new());
         }
+
+        let capacity = lines.map(|n| n as usize).unwrap_or(0);
+        let mut entries = Vec::with_capacity(capacity);
+
+        if reverse {
+            journal.seek_tail()
+                .map_err(|e| {JournalError::IoError(format!("Cannot read the journal during the parser due to: {e:#?}"))})?;
+
+            let mut remaining = lines;
+            loop {
+                match journal
+                    .previous_entry()
+                    .map_err(|e| JournalError::IoError(format!("An error ocurred during the journal lines parsing: {e:#?}")))?
+                {
+                    Some(_) => {
+                        match remaining {
+                            Some(0) => break,
+                            Some(n) => remaining = Some(n - 1),
+                            None => {}
+                        }
+
+                        let record = extract_record(journal).map_err(|e| {
+                            JournalError::FieldMissing(format!("Could not extract the record from journal line due to: {e:#?}"))
+                        })?;
+                        entries.push(LogEntry::Journal(Box::new(record)));
+                    }
+                    None => break,
+                }
+            }
+        } else {
+            if let Some(n) = lines {
+                journal.seek_tail()
+                    .map_err(|e| {JournalError::IoError(format!("Cannot read the journal during the parser due to: {e:#?}"))})?;
+                journal
+                    .previous_skip(n + 1)
+                    .map_err(|e| JournalError::IoError(format!("Cannot read the journal's lines during the parser due to: {e:#?}")))?;
+            } else {
+                journal.seek_head()
+                    .map_err(|e| {JournalError::IoError(format!("Cannot read the journal during the parser due to: {e:#?}"))})?;
+            }
+
+            while journal
+                .next_entry()
+                .map_err(|e| JournalError::IoError(format!("An error ocurred during the journal lines parsing: {e:#?}")))?
+                .is_some()
+            {
+                let record = extract_record(journal)
+                    .map_err(|e| {
+                        JournalError::FieldMissing(format!("Could not extract the record from journal line due to: {e:#?}"))
+                    })?;
+                entries.push(LogEntry::Journal(Box::new(record)));
+            }
+        }
+
         Ok(entries)
     }
 }

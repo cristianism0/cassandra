@@ -6,39 +6,61 @@ use crate::models::{LogEntry, ParseError, WtmpRecord};
 pub struct WtmpLog;
 
 impl LogParser for WtmpLog {
-    fn parser(&self, path: &Path) -> Result<Vec<LogEntry>, ParseError> {
-        let mut cursor: u64 = 0;
-        let mut f = File::open(path).map_err(|e| {
-            ParseError::IoError(format!("Cannot open file at {:#?} due to: {e}", path))
-        })?;
-        let meta = f.metadata().map_err(|e| {
-            ParseError::IoError(format!(
-                "Cannot traverse path: {path:#?}. Due to error {e}."))
+    fn parser(&self, path: &Path, lines: Option<u64>, reverse: bool) -> Result<Vec<LogEntry>, ParseError> {
+	let mut f = File::open(path).map_err(|e| {
+	    ParseError::IoError(format!("Cannot open file at {path:#?} due to: {e}"))
 	})?;
-        let file_len = meta.len();
 
-        if file_len < cursor {
-            cursor = 0;
-        }
+	let meta = f.metadata().map_err(|e| {
+	    ParseError::IoError(format!("Cannot traverse path: {path:#?}. Due to error {e}."))
+	})?;
 
-        let mut entries = Vec::new();
+	let file_len = meta.len();
+	//wtmp has 384 bytes per line
+	let record_size = 384;
 
-        if file_len > cursor {
-            f.seek(SeekFrom::Start(cursor))
-                .map_err(|e| ParseError::IoError(format!("Journal seek error: {e}")))?;
-            let mut buf = vec![0u8; (file_len - cursor) as usize];
-            f.read_exact(&mut buf).map_err(|e| {
-                ParseError::MalformedLine(format!("Cannot read journald line due to error: {e}"))
-            })?;
+	let total_lines = file_len / record_size;
 
-            for r in buf.chunks_exact(384) {
-                entries.push(LogEntry::Wtmp(parse_record(r).expect("Failed to collect the Wtmp line info.")));
-            }
-        }
+	let lines_to_read = match lines {
+	    Some(n) => n.min(total_lines),
+	    None => total_lines,
+	};
 
-        Ok(entries)
+	if lines_to_read == 0 {
+	    return Ok(Vec::new());
+	}
+
+	let bytes_to_read = lines_to_read * record_size;
+	let start_offset = file_len - bytes_to_read;
+
+	f.seek(SeekFrom::Start(start_offset))
+	    .map_err(|e| ParseError::IoError(format!("Journal seek error: {e}")))?;
+
+	let mut buf = vec![0u8; bytes_to_read as usize];
+	f.read_exact(&mut buf).map_err(|e| {
+	    ParseError::IoError(format!("Cannot read journald line due to: {e}"))
+	})?;
+
+	let mut entries = Vec::with_capacity(lines_to_read as usize);
+
+	if reverse {
+	    for r in buf.chunks_exact(record_size as usize).rev() {
+		entries.push(LogEntry::Wtmp(
+		    parse_record(r).expect("Failed to collect the Wtmp line info.")
+		));
+	    }
+	} else {
+	    for r in buf.chunks_exact(record_size as usize) {
+		entries.push(LogEntry::Wtmp(
+		    parse_record(r).expect("Failed to collect the Wtmp line info.")
+		));
+	    }
+	}
+
+	Ok(entries)
     }
 }
+
 fn parse_record(buffer: &[u8]) -> Option<WtmpRecord> {
     Some(WtmpRecord {
         ut_type: i16::from_ne_bytes(buffer[0..2].try_into().unwrap_or_default()),

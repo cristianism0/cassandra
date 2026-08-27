@@ -2,6 +2,29 @@ use clap::ValueEnum;
 use std::io::Error;
 use std::path::PathBuf;
 
+//---------- Columns Presets ----------//
+#[derive(Debug)]
+pub struct JournalPreset {
+    pub columns: &'static [&'static str],
+    pub max_priority: u8,
+}
+
+pub const JOURNAL_CRITICAL: &[&str] = &[
+    "message", "code_file", "_hostname", "_systemd_unit", "_selinux_context",
+    "_pid", "_source_realtime_timestamp"
+];
+
+pub const JOURNAL_MEDIUM: &[&str] = &[
+    "message","code_file", "code_func", "code_line", "_audit_loginuid",
+    "_audit_session", "_selinux_context", "_pid", "tid", "_boot_id"
+];
+
+pub const JOURNAL_LOW: &[&str] = &[
+    "message", "_transport", "syslog_facility", "_runtime_scope","_systemd_cgroup",
+    "_systemd_user_slice", "_systemd_owner_uid", "_machine_id",
+    "_source_monotonic_timestamp", "_source_boottime_timestamp"
+];
+
 pub trait TableDisplay {
     fn headers() -> Vec<&'static str>;
     fn fields(&self) -> Vec<String>;
