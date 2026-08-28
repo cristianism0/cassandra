@@ -1,8 +1,9 @@
 use crate::models::{AuthRecord, LogEntry, ParseError};
+use crate::parsers::AUTH_RE;
 use crate::parsers::selector::LogParser;
 use regex::Regex;
 use std::io::{BufRead, BufReader};
-use std::{fs::File, path::Path, collections::VecDeque};
+use std::{fs::File, path::Path};
 
 pub struct AuthLog;
 
@@ -13,54 +14,79 @@ pub struct AuthLog;
 // display.
 
 impl LogParser for AuthLog {
-    fn parser(&self, path: &Path, lines: Option<u64>, reverse: bool) -> Result<Vec<LogEntry>, ParseError> {
-	if let Some(0) = lines {
-	    return Ok(Vec::new());
-	}
+    fn parser(
+        &self,
+        path: &Path,
+        lines: Option<u64>,
+        reverse: bool,
+    ) -> Result<Vec<LogEntry>, ParseError> {
+        if let Some(0) = lines {
+            return Ok(Vec::new());
+        }
 
-	let sec_pattern = Regex::new(r"^(?:<(?P<pri>\d+)>)?(?P<timestamp>(?P<month>[A-Za-z]{3})\s+(?P<day>\d{1,2})\s+(?P<time>\d{2}:\d{2}:\d{2}))\s+(?P<host>\S+)\s+(?P<process>[^\[:]+)(?:\[(?P<pid>\d+)\])?:\s*(?:(?P<caller>[^:]+):\s*)?(?P<msg>.*)$").unwrap();
+        let sec_pattern = &*AUTH_RE;
 
-	let f = File::open(path).map_err(|e| {
-	    ParseError::IoError(format!("Cannot open file at {path:?} due to: {e}"))
-	})?;
+        if let Some(n) = lines.map(|n| n as usize) {
+            let mut f = File::open(path).map_err(|e| {
+                ParseError::IoError(format!("Cannot open file at {path:?} due to: {e}"))
+            })?;
+            let offset = crate::parsers::find_tail_offset(&mut f, n).map_err(|e| {
+                ParseError::IoError(format!("Cannot seek in file at {path:#?} due to: {e}"))
+            })?;
+            use std::io::Seek;
+            f.seek(std::io::SeekFrom::Start(offset)).map_err(|e| {
+                ParseError::IoError(format!("Cannot seek in file at {path:#?} due to: {e}"))
+            })?;
+            let mut bufr = BufReader::with_capacity(128 * 1024, f);
+            let mut bufl = String::new();
+            let mut entries = Vec::with_capacity(n);
+            let mut first = offset != 0;
+            while bufr.read_line(&mut bufl).map_err(|e| {
+                ParseError::MalformedLine(format!(
+                    "File with malformed line was found while reading log file at {path:?}: {e}"
+                ))
+            })? > 0
+            {
+                if first {
+                    first = false;
+                    bufl.clear();
+                    continue;
+                }
+                if let Some(rec) = parse_re(sec_pattern, bufl.trim_end()) {
+                    entries.push(LogEntry::Auth(rec));
+                }
+                bufl.clear();
+            }
+            if reverse {
+                entries.reverse();
+            }
+            return Ok(entries);
+        }
 
-	let mut bufr = BufReader::new(f);
-	let mut bufl = String::new();
+        let f = File::open(path).map_err(|e| {
+            ParseError::IoError(format!("Cannot open file at {path:?} due to: {e}"))
+        })?;
 
-	let limit = lines.map(|n| n as usize);
-	let mut deque = match limit {
-	    Some(n) => VecDeque::with_capacity(n),
-	    None => VecDeque::new(),
-	};
+        let mut bufr = BufReader::with_capacity(128 * 1024, f);
+        let mut bufl = String::new();
+        let mut entries = Vec::new();
 
-	while bufr.read_line(&mut bufl).map_err(|e| {
-	    ParseError::MalformedLine(format!(
-		"File with malformed line was found while reading log file at {path:?}: {e}"))
-	})? > 0
-	{
-	    let entry = LogEntry::Auth(
-		parse_re(&sec_pattern, bufl.trim_end()).expect("Cannot get the information line.")
-	    );
+        while bufr.read_line(&mut bufl).map_err(|e| {
+            ParseError::MalformedLine(format!(
+                "File with malformed line was found while reading log file at {path:?}: {e}"
+            ))
+        })? > 0
+        {
+            if let Some(rec) = parse_re(sec_pattern, bufl.trim_end()) {
+                entries.push(LogEntry::Auth(rec));
+            }
+            bufl.clear();
+        }
 
-	    if let Some(n) = limit {
-		if deque.len() == n {
-		    deque.pop_front();
-		}
-	    }
-
-	    deque.push_back(entry);
-	    bufl.clear();
-	}
-
-	let mut entries = Vec::with_capacity(deque.len());
-
-	if reverse {
-	    entries.extend(deque.into_iter().rev());
-	} else {
-	    entries.extend(deque.into_iter());
-	}
-
-	Ok(entries)
+        if reverse {
+            entries.reverse();
+        }
+        Ok(entries)
     }
 }
 

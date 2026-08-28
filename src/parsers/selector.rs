@@ -6,7 +6,12 @@ use systemd::journal::{Journal, OpenOptions};
 use crate::models::{Finfo, JournalError, JournalScope, LogEntry, LogSource, ParseError};
 use crate::parsers::*;
 
-pub fn parser_selector(file_info: Finfo, lines: Option<u64>, reverse: bool) -> Result<Vec<LogEntry>, ParseError> {
+pub fn parser_selector(
+    file_info: Finfo,
+    lines: Option<u64>,
+    reverse: bool,
+) -> Result<Vec<LogEntry>, ParseError> {
+    // TODO: wire search/gravity here — pass through to LogParser::parser as `search` arg
     match file_info.source {
         LogSource::Sys => {
             let p = sys::SysLog;
@@ -26,7 +31,11 @@ pub fn parser_selector(file_info: Finfo, lines: Option<u64>, reverse: bool) -> R
     }
 }
 
-pub fn journal_parsed(journal_scope: JournalScope, lines: Option<u64>, reverse: bool) -> Result<Vec<LogEntry>, JournalError> {
+pub fn journal_parsed(
+    journal_scope: JournalScope,
+    lines: Option<u64>,
+    reverse: bool,
+) -> Result<Vec<LogEntry>, JournalError> {
     let j = journal::JournalLog;
     let mut jc = j.connect(journal_scope)?;
     let jentry = j.parser(&mut jc, lines, reverse)?;
@@ -34,15 +43,22 @@ pub fn journal_parsed(journal_scope: JournalScope, lines: Option<u64>, reverse: 
 }
 
 pub trait LogParser {
-    fn parser(&self, path: &Path, lines: Option<u64>, reverse: bool) -> Result<Vec<LogEntry>, ParseError>;
+    fn parser(
+        &self,
+        path: &Path,
+        lines: Option<u64>,
+        reverse: bool,
+    ) -> Result<Vec<LogEntry>, ParseError>;
 
     fn check_access(&self, path: &Path) -> Result<(), ParseError> {
         match File::open(path) {
             Ok(_) => Ok(()),
             Err(e) if e.kind() == ErrorKind::NotFound => Err(ParseError::IoError(format!(
-                "Path doesn't exists or was moved: {path:?}"))),
+                "Path doesn't exists or was moved: {path:?}"
+            ))),
             Err(e) => Err(ParseError::IoError(format!(
-                "Cannot open path {path:?} due to error: {e}"))),
+                "Cannot open path {path:?} due to error: {e}"
+            ))),
         }
     }
 }
@@ -59,8 +75,14 @@ pub trait JournalParser {
                 opts.current_user(true);
             }
         }
-        opts.open()
-            .map_err(|e| JournalError::Unavailable(format!("Cannot connect the journal socket due to: {e}")))
+        opts.open().map_err(|e| {
+            JournalError::Unavailable(format!("Cannot connect the journal socket due to: {e}"))
+        })
     }
-    fn parser(&self, journal: &mut Journal, lines: Option<u64>, reverse: bool) -> Result<Vec<LogEntry>, JournalError>;
+    fn parser(
+        &self,
+        journal: &mut Journal,
+        lines: Option<u64>,
+        reverse: bool,
+    ) -> Result<Vec<LogEntry>, JournalError>;
 }

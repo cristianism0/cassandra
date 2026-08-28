@@ -4,6 +4,18 @@ use crate::models::{JournalScope, RecordType, TableMode};
 use comfy_table::presets::{UTF8_FULL, UTF8_FULL_CONDENSED};
 use comfy_table::ContentArrangement;
 
+fn truncate_content(s: &str, max_width: usize) -> String {
+    let char_count = s.chars().count();
+    if char_count <= max_width {
+        return s.to_string();
+    }
+    if max_width <= 3 {
+        return s.chars().take(max_width).collect();
+    }
+    let truncated: String = s.chars().take(max_width - 3).collect();
+    format!("{truncated}...")
+}
+
 const JOURNAL_KERNEL_COL: [&str; 11] = [
     "MESSAGE",
     "PRIORITY",
@@ -66,12 +78,17 @@ fn build_table_with<T: TableDisplay>(
 
     for row in rows {
         let fields = row.fields();
-        let cells: Vec<String> = col_map.iter().map(|&i| fields[i].clone()).collect();
+        let cells: Vec<String> = col_map.iter().map(|&i| {
+            if let Some(max_width) = max_col_width {
+                truncate_content(&fields[i], max_width)
+            } else {
+                fields[i].clone()
+            }
+        }).collect();
         table.add_row(cells);
     }
 
     if let Some(width) = max_col_width {
-        table.set_truncation_indicator("...");
         let constraints: Vec<_> = (0..table.column_count())
             .map(|_| comfy_table::ColumnConstraint::UpperBoundary(
                 comfy_table::Width::Fixed(width as u16),
