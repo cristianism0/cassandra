@@ -1,10 +1,15 @@
-use crate::models::{
-    AuthRecord, FromLogEntry, JournalRecord, LogEntry, SysRecord, TableDisplay, WtmpRecord,
-};
-use crate::models::{JournalScope, RecordType, TableMode};
-
 use comfy_table::ContentArrangement;
 use comfy_table::presets::{UTF8_FULL, UTF8_FULL_CONDENSED};
+
+use crate::models::{
+    FromLogEntry, LogEntry,
+    auth::AuthRecord,
+    journal::{JOURNAL_KERNEL_COL, JournalRecord, JournalScope},
+    sys::SysRecord,
+    wtmp::WtmpRecord,
+};
+
+use crate::display::{RecordType, TableDisplay, TableMode};
 
 fn truncate_content(s: &str, max_width: usize) -> String {
     let char_count = s.chars().count();
@@ -17,20 +22,6 @@ fn truncate_content(s: &str, max_width: usize) -> String {
     let truncated: String = s.chars().take(max_width - 3).collect();
     format!("{truncated}...")
 }
-
-const JOURNAL_KERNEL_COL: [&str; 11] = [
-    "MESSAGE",
-    "PRIORITY",
-    "SYSLOG_FACILITY",
-    "SYSLOG_IDENTIFIER",
-    "_BOOT_ID",
-    "_HOSTNAME",
-    "_MACHINE_ID",
-    "_RUNTIME_SCOPE",
-    "_SOURCE_BOOTTIME_TIMESTAMP",
-    "_SOURCE_MONOTONIC_TIMESTAMP",
-    "_TRANSPORT",
-];
 
 pub fn group<T: FromLogEntry>(entries: &[LogEntry]) -> Vec<&T> {
     entries.iter().filter_map(T::from_entry).collect()
@@ -168,7 +159,7 @@ pub fn build_journal_table<T: TableDisplay + FromLogEntry>(
     }
     let headers = T::headers();
     let hide_columns = matches!(scope, JournalScope::System)
-        .then(|| column_indices(&headers, &JOURNAL_KERNEL_COL));
+        .then(|| column_indices(&headers, JOURNAL_KERNEL_COL));
 
     if let TableMode::KeyValue = mode {
         return Some(render_key_value(rows, hide_columns.as_deref()));

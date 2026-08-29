@@ -1,14 +1,24 @@
-use crate::display::table_cli::{build_journal_table, build_table};
-use crate::parsers::selector::{journal_parsed, parser_selector};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::process::exit;
 
-use crate::display::theme::rose_pine_moon;
-use crate::models::{
-    AuthRecord, Finfo, FromLogEntry, JOURNAL_CRITICAL, JOURNAL_LOW, JOURNAL_MEDIUM, JournalRecord,
-    JournalScope, LogSource, ParseError, SOURCES, SourceCandidate, SysRecord, TableDisplay,
-    TableMode, WtmpRecord,
+use crate::display::{
+    TableDisplay, TableMode,
+    table_cli::{build_journal_table, build_table},
+    theme::rose_pine_moon,
 };
-use clap::{Parser, Subcommand, ValueEnum};
+
+use crate::parsers::{
+    ParseError,
+    selector::{journal_parsed, parser_selector},
+};
+
+use crate::models::{
+    Finfo, FromLogEntry, LogSource, SOURCES, SourceCandidate,
+    auth::AuthRecord,
+    journal::{JournalRecord, JournalScope},
+    sys::SysRecord,
+    wtmp::WtmpRecord,
+};
 
 #[derive(Parser, Debug)]
 #[command(version, about, styles=rose_pine_moon())]
@@ -47,13 +57,13 @@ struct ArgsC {
     standard: bool,
 
     // TODO: still to wire -> rows, gravity, search
-    #[arg(
-        long,
-        value_delimiter = ',',
-        global = true,
-        help = "Filter rows by column=value — e.g. --rows host=myhost,process=sshd (not yet wired)"
-    )]
-    rows: Option<Vec<String>>,
+    // #[arg(
+    //     long,
+    //     value_delimiter = ',',
+    //     global = true,
+    //     help = "Filter rows by column=value — e.g. --rows host=myhost,process=sshd (not yet wired)"
+    // )]
+    // rows: Option<Vec<String>>,
     #[arg(short, long, global = true, help = "Limit to last N lines")]
     lines: Option<u64>,
     #[arg(
@@ -63,11 +73,12 @@ struct ArgsC {
         help = "Reverse output order — newest first"
     )]
     reverse: Option<bool>,
-    #[arg(long, global = true, help = "Substring filter (not yet wired)")]
-    search: Option<String>,
+    // #[arg(long, global = true, help = "Substring filter (not yet wired)")]
+    // search: Option<String>,
     // TODO: chrono like system for all parsers — common filter e.g. "15 days ago", "2024-01-01", "now-2h"
     // Parse with humantime/chrono -> SystemTime, then filter sys/auth by timestamp
     // and journal via seek_realtime_usec. Lazy to TUI: tokio stream + mpsc, render windowed.
+
     // #[arg(long, global=true, help = "Show entries since time — e.g. --since '15 days ago'")]
     // since: Option<String>,
     // #[arg(long, global=true, help = "Show entries until time")]
@@ -88,13 +99,14 @@ enum LogKey {
     Journal {
         #[arg(long, default_value = "user", help = "Journal scope — system or user")]
         scope: JournalScope,
-        #[arg(
-            short,
-            long,
-            global = true,
-            help = "Filter by gravity — critical/low/medium (maps to priority)"
-        )]
-        gravity: Option<GravityArgs>,
+        // TODO: still to wire
+        // #[arg(
+        //     short,
+        //     long,
+        //     global = true,
+        //     help = "Filter by gravity — critical/low/medium (maps to priority)"
+        // )]
+        // gravity: Option<GravityArgs>,
     },
 }
 

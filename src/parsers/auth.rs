@@ -1,18 +1,21 @@
-use crate::models::{AuthRecord, LogEntry, ParseError};
-use crate::parsers::AUTH_RE;
+use crate::models::{LogEntry, auth::AuthRecord};
 use crate::parsers::selector::LogParser;
+
+use crate::parsers::ParseError;
+
 use regex::Regex;
 use std::io::{BufRead, BufReader};
-use std::{fs::File, path::Path};
+use std::{collections::VecDeque, fs::File, path::Path};
 
-pub struct AuthLog;
+use crate::parsers::AUTH_RE;
 
 // Structure for Auth and Sys follow RFC 3164:
 // PRI HEADER MSG
 // but, for a better readability most linus system ommit the priority
 // if you have priority available (after change the rsyslog.conf) the regex will capture and
 // display.
-
+//
+pub struct AuthLog;
 impl LogParser for AuthLog {
     fn parser(
         &self,
@@ -24,52 +27,18 @@ impl LogParser for AuthLog {
             return Ok(Vec::new());
         }
 
-        let sec_pattern = &*AUTH_RE;
-
-        if let Some(n) = lines.map(|n| n as usize) {
-            let mut f = File::open(path).map_err(|e| {
-                ParseError::IoError(format!("Cannot open file at {path:?} due to: {e}"))
-            })?;
-            let offset = crate::parsers::find_tail_offset(&mut f, n).map_err(|e| {
-                ParseError::IoError(format!("Cannot seek in file at {path:#?} due to: {e}"))
-            })?;
-            use std::io::Seek;
-            f.seek(std::io::SeekFrom::Start(offset)).map_err(|e| {
-                ParseError::IoError(format!("Cannot seek in file at {path:#?} due to: {e}"))
-            })?;
-            let mut bufr = BufReader::with_capacity(128 * 1024, f);
-            let mut bufl = String::new();
-            let mut entries = Vec::with_capacity(n);
-            let mut first = offset != 0;
-            while bufr.read_line(&mut bufl).map_err(|e| {
-                ParseError::MalformedLine(format!(
-                    "File with malformed line was found while reading log file at {path:?}: {e}"
-                ))
-            })? > 0
-            {
-                if first {
-                    first = false;
-                    bufl.clear();
-                    continue;
-                }
-                if let Some(rec) = parse_re(sec_pattern, bufl.trim_end()) {
-                    entries.push(LogEntry::Auth(rec));
-                }
-                bufl.clear();
-            }
-            if reverse {
-                entries.reverse();
-            }
-            return Ok(entries);
-        }
-
         let f = File::open(path).map_err(|e| {
             ParseError::IoError(format!("Cannot open file at {path:?} due to: {e}"))
         })?;
 
-        let mut bufr = BufReader::with_capacity(128 * 1024, f);
+        let mut bufr = BufReader::new(f);
         let mut bufl = String::new();
-        let mut entries = Vec::new();
+
+        let limit = lines.map(|n| n as usize);
+        let mut deque = match limit {
+            Some(n) => VecDeque::with_capacity(n),
+            None => VecDeque::new(),
+        };
 
         while bufr.read_line(&mut bufl).map_err(|e| {
             ParseError::MalformedLine(format!(
@@ -77,15 +46,29 @@ impl LogParser for AuthLog {
             ))
         })? > 0
         {
-            if let Some(rec) = parse_re(sec_pattern, bufl.trim_end()) {
-                entries.push(LogEntry::Auth(rec));
+            let entry = LogEntry::Auth(
+                parse_re(&AUTH_RE, bufl.trim_end()).expect("Cannot get the information line."),
+            );
+
+            if let Some(n) = limit
+                && deque.len() == n
+            {
+                deque.pop_front();
             }
+
+            deque.push_back(entry);
             bufl.clear();
         }
 
+        let mut entries = Vec::with_capacity(deque.len());
+
         if reverse {
-            entries.reverse();
+            // TODO: remove the .rev(), extremelly bad for large files for parsing and reversing. pure CPU bound.
+            entries.extend(deque.into_iter().rev());
+        } else {
+            entries.extend(deque);
         }
+
         Ok(entries)
     }
 }
