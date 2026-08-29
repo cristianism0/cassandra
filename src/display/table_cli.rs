@@ -1,8 +1,10 @@
-use crate::models::{AuthRecord, FromLogEntry, JournalRecord, LogEntry, SysRecord, TableDisplay, WtmpRecord};
+use crate::models::{
+    AuthRecord, FromLogEntry, JournalRecord, LogEntry, SysRecord, TableDisplay, WtmpRecord,
+};
 use crate::models::{JournalScope, RecordType, TableMode};
 
-use comfy_table::presets::{UTF8_FULL, UTF8_FULL_CONDENSED};
 use comfy_table::ContentArrangement;
+use comfy_table::presets::{UTF8_FULL, UTF8_FULL_CONDENSED};
 
 fn truncate_content(s: &str, max_width: usize) -> String {
     let char_count = s.chars().count();
@@ -53,8 +55,13 @@ fn build_table_with<T: TableDisplay>(
     let all_headers = T::headers();
     let (headers, col_map) = match keep_columns {
         Some(keep) => {
-            let filtered: Vec<usize> = (0..all_headers.len()).filter(|i| keep.contains(i)).collect();
-            let h: Vec<String> = filtered.iter().map(|&i| all_headers[i].to_string()).collect();
+            let filtered: Vec<usize> = (0..all_headers.len())
+                .filter(|i| keep.contains(i))
+                .collect();
+            let h: Vec<String> = filtered
+                .iter()
+                .map(|&i| all_headers[i].to_string())
+                .collect();
             (h, filtered)
         }
         None => {
@@ -78,21 +85,26 @@ fn build_table_with<T: TableDisplay>(
 
     for row in rows {
         let fields = row.fields();
-        let cells: Vec<String> = col_map.iter().map(|&i| {
-            if let Some(max_width) = max_col_width {
-                truncate_content(&fields[i], max_width)
-            } else {
-                fields[i].clone()
-            }
-        }).collect();
+        let cells: Vec<String> = col_map
+            .iter()
+            .map(|&i| {
+                if let Some(max_width) = max_col_width {
+                    truncate_content(&fields[i], max_width)
+                } else {
+                    fields[i].clone()
+                }
+            })
+            .collect();
         table.add_row(cells);
     }
 
     if let Some(width) = max_col_width {
         let constraints: Vec<_> = (0..table.column_count())
-            .map(|_| comfy_table::ColumnConstraint::UpperBoundary(
-                comfy_table::Width::Fixed(width as u16),
-            ))
+            .map(|_| {
+                comfy_table::ColumnConstraint::UpperBoundary(comfy_table::Width::Fixed(
+                    width as u16,
+                ))
+            })
             .collect();
         table.set_constraints(constraints);
     }
@@ -104,7 +116,9 @@ fn render_key_value<T: TableDisplay>(rows: Vec<&T>, hide_columns: Option<&[usize
     let mut output = String::new();
     let all_headers = T::headers();
     let keep: Option<Vec<usize>> = hide_columns.map(|hide| {
-        (0..all_headers.len()).filter(|i| !hide.contains(i)).collect()
+        (0..all_headers.len())
+            .filter(|i| !hide.contains(i))
+            .collect()
     });
     for (i, row) in rows.into_iter().enumerate() {
         output.push_str(&format!("[ Entry {} ]\n", i + 1));
@@ -136,7 +150,11 @@ pub fn build_table<T: TableDisplay + FromLogEntry>(
         }
         TableMode::KeyValue => unreachable!(),
     };
-    Some(build_table_with(&rows, keep_columns.as_deref(), max_col_width))
+    Some(build_table_with(
+        &rows,
+        keep_columns.as_deref(),
+        max_col_width,
+    ))
 }
 
 pub fn build_journal_table<T: TableDisplay + FromLogEntry>(
@@ -157,13 +175,19 @@ pub fn build_journal_table<T: TableDisplay + FromLogEntry>(
     }
 
     let keep_columns = hide_columns.as_ref().map(|h| {
-        (0..headers.len()).filter(|i| !h.contains(i)).collect::<Vec<usize>>()
+        (0..headers.len())
+            .filter(|i| !h.contains(i))
+            .collect::<Vec<usize>>()
     });
     let max_col_width = match mode {
         TableMode::Compact { max_col_width } => Some(*max_col_width),
         _ => None,
     };
-    Some(build_table_with(&rows, keep_columns.as_deref(), max_col_width))
+    Some(build_table_with(
+        &rows,
+        keep_columns.as_deref(),
+        max_col_width,
+    ))
 }
 
 pub fn render_all_tables(records: Vec<RecordType<'_>>, mode: &TableMode) -> Vec<String> {
