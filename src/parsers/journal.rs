@@ -12,14 +12,17 @@ impl JournalParser for JournalLog {
             return Ok(Vec::new());
         }
 
-        let capacity = lines.map(|n| n as usize).unwrap_or(0);
-        let mut entries = Vec::with_capacity(capacity);
+        let mut entries = match lines {
+            Some(n) => Vec::with_capacity(n as usize),
+            None => Vec::with_capacity(1024),
+        };
 
         if reverse {
             journal.seek_tail()
                 .map_err(|e| {JournalError::IoError(format!("Cannot read the journal during the parser due to: {e:#?}"))})?;
 
-            let mut remaining = lines;
+            // No point of return for `lines=None` — default to 1000 to avoid blocking on large journal
+            let mut remaining = lines.or(Some(1000));
             loop {
                 match journal
                     .previous_entry()
@@ -44,24 +47,42 @@ impl JournalParser for JournalLog {
             if let Some(n) = lines {
                 journal.seek_tail()
                     .map_err(|e| {JournalError::IoError(format!("Cannot read the journal during the parser due to: {e:#?}"))})?;
+                // previous_skip(n) positions so that next_entry will yield last n entries.
+                // Bounded loop guarantees return even if n > total (returns total).
                 journal
-                    .previous_skip(n + 1)
+                    .previous_skip(n)
                     .map_err(|e| JournalError::IoError(format!("Cannot read the journal's lines during the parser due to: {e:#?}")))?;
-            } else {
-                journal.seek_head()
-                    .map_err(|e| {JournalError::IoError(format!("Cannot read the journal during the parser due to: {e:#?}"))})?;
-            }
-
-            while journal
-                .next_entry()
-                .map_err(|e| JournalError::IoError(format!("An error ocurred during the journal lines parsing: {e:#?}")))?
-                .is_some()
-            {
-                let record = extract_record(journal)
-                    .map_err(|e| {
+                let mut remaining = n;
+                while remaining > 0
+                    && journal
+                        .next_entry()
+                        .map_err(|e| JournalError::IoError(format!("An error ocurred during the journal lines parsing: {e:#?}")))?
+                        .is_some()
+                {
+                    let record = extract_record(journal).map_err(|e| {
                         JournalError::FieldMissing(format!("Could not extract the record from journal line due to: {e:#?}"))
                     })?;
-                entries.push(LogEntry::Journal(Box::new(record)));
+                    entries.push(LogEntry::Journal(Box::new(record)));
+                    remaining -= 1;
+                }
+            } else {
+                // No point of return — `lunete journal` without `lines` would read entire journal and block.
+                // Put sane default (last 1000) to keep CLI responsive; TUI will stream lazy windowed via tokio mpsc.
+                journal.seek_tail()
+                    .map_err(|e| {JournalError::IoError(format!("Cannot read the journal during the parser due to: {e:#?}"))})?;
+                journal
+                    .previous_skip(1000)
+                    .map_err(|e| JournalError::IoError(format!("Cannot read the journal's lines during the parser due to: {e:#?}")))?;
+                while journal
+                    .next_entry()
+                    .map_err(|e| JournalError::IoError(format!("An error ocurred during the journal lines parsing: {e:#?}")))?
+                    .is_some()
+                {
+                    let record = extract_record(journal).map_err(|e| {
+                        JournalError::FieldMissing(format!("Could not extract the record from journal line due to: {e:#?}"))
+                    })?;
+                    entries.push(LogEntry::Journal(Box::new(record)));
+                }
             }
         }
 
