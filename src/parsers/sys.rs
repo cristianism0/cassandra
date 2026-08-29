@@ -1,11 +1,15 @@
-use crate::models::{LogEntry, ParseError, SysRecord};
-use crate::parsers::SYS_RE;
-use crate::parsers::selector::LogParser;
-use regex::Regex;
+use crate::models::{LogEntry, sys::SysRecord};
+use crate::parsers::{ParseError, selector::LogParser};
 
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::{
+    collections::VecDeque,
+    fs::File,
+    io::{BufRead, BufReader},
+    path::Path,
+};
+
+use crate::parsers::SYS_RE;
+use regex::Regex;
 
 pub struct SysLog;
 
@@ -20,55 +24,18 @@ impl LogParser for SysLog {
             return Ok(Vec::new());
         }
 
-        let sys_pattern = &*SYS_RE;
-
-        // Lazy tail: if `lines` is Some(n), seek to start of last n lines instead of scanning whole file.
-        if let Some(n) = lines.map(|n| n as usize) {
-            let mut f = File::open(path).map_err(|e| {
-                ParseError::IoError(format!("Cannot open file at {path:#?} due to: {e}"))
-            })?;
-            let offset = crate::parsers::find_tail_offset(&mut f, n).map_err(|e| {
-                ParseError::IoError(format!("Cannot seek in file at {path:#?} due to: {e}"))
-            })?;
-            use std::io::Seek;
-            f.seek(std::io::SeekFrom::Start(offset)).map_err(|e| {
-                ParseError::IoError(format!("Cannot seek in file at {path:#?} due to: {e}"))
-            })?;
-            let mut bufr = BufReader::with_capacity(128 * 1024, f);
-            let mut bufl = String::new();
-            let mut entries = Vec::with_capacity(n);
-            let mut first = offset != 0;
-            while bufr.read_line(&mut bufl).map_err(|e| {
-                ParseError::MalformedLine(format!(
-                    "File with malformed line was found while reading log file at {path:?}: {e}"
-                ))
-            })? > 0
-            {
-                if first {
-                    // First line after seek may be partial — discard.
-                    first = false;
-                    bufl.clear();
-                    continue;
-                }
-                // TODO: when `search` is wired, filter here before regex: if !bufl.contains(search) { bufl.clear(); continue; }
-                if let Some(rec) = parse_re(sys_pattern, bufl.trim_end()) {
-                    entries.push(LogEntry::Sys(rec));
-                }
-                bufl.clear();
-            }
-            if reverse {
-                entries.reverse();
-            }
-            return Ok(entries);
-        }
-
         let f = File::open(path).map_err(|e| {
             ParseError::IoError(format!("Cannot open file at {path:#?} due to: {e}"))
         })?;
 
-        let mut bufr = BufReader::with_capacity(128 * 1024, f);
+        let mut bufr = BufReader::new(f);
         let mut bufl = String::new();
-        let mut entries = Vec::new();
+
+        let limit = lines.map(|n| n as usize);
+        let mut deque = match limit {
+            Some(n) => VecDeque::with_capacity(n),
+            None => VecDeque::new(),
+        };
 
         while bufr.read_line(&mut bufl).map_err(|e| {
             ParseError::MalformedLine(format!(
@@ -76,16 +43,29 @@ impl LogParser for SysLog {
             ))
         })? > 0
         {
-            // TODO: filter by `search` here before parsing to avoid regex cost
-            if let Some(rec) = parse_re(sys_pattern, bufl.trim_end()) {
-                entries.push(LogEntry::Sys(rec));
+            let entry = LogEntry::Sys(
+                parse_re(&SYS_RE, bufl.trim_end())
+                    .expect("Cannot get the information line due to bad regex match."),
+            );
+
+            if let Some(n) = limit
+                && deque.len() == n
+            {
+                deque.pop_front();
             }
+
+            deque.push_back(entry);
             bufl.clear();
         }
 
+        let mut entries = Vec::with_capacity(deque.len());
+
         if reverse {
-            entries.reverse();
+            entries.extend(deque.into_iter().rev());
+        } else {
+            entries.extend(deque);
         }
+
         Ok(entries)
     }
 }
