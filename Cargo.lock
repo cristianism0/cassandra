@@ -74,6 +74,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1522ac6ee801a11bf9ef3f80403f4ede6eb41291fac3dde3de09989679305f25"
 
 [[package]]
+name = "cassandra"
+version = "0.1.0"
+dependencies = [
+ "anstyle",
+ "clap",
+ "comfy-table",
+ "regex",
+ "systemd",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -271,17 +282,6 @@ name = "log"
 version = "0.4.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
-
-[[package]]
-name = "lunete"
-version = "0.1.0"
-dependencies = [
- "anstyle",
- "clap",
- "comfy-table",
- "regex",
- "systemd",
-]
 
 [[package]]
 name = "memchr"

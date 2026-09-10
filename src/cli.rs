@@ -180,7 +180,7 @@ pub fn run_cli() {
             println!(
                 "{}",
                 table.unwrap_or_else(|| {
-                    eprintln!("Error: Lunete could not create the table.");
+                    eprintln!("Error: Cassandra could not create the table.");
                     exit(2);
                 })
             );
@@ -197,7 +197,7 @@ where
         Some(e) => e,
         None => {
             eprintln!(
-                "Error: No available path.\nHint: Lunete may lack the required permissions.\
+                "Error: No available path.\nHint: Cassandra may lack the required permissions.\
 		       Try running 'cap.sh' to set binary capabilities."
             );
             exit(2);
@@ -231,7 +231,7 @@ where
     let table = match build_table::<T>(&ret, mode) {
         Some(e) => e,
         None => {
-            eprintln!("Error: Lunete could not create the table.");
+            eprintln!("Error: Cassandra could not create the table.");
             exit(2);
         }
     };
