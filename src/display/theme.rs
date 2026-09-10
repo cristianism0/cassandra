@@ -44,7 +44,6 @@ pub fn rose_pine_moon() -> Styles {
 }
 
 // TUI theme — central place to customize colors for future `ratatui`/`comfy-table`.
-// Keep as struct so you can later load from file (e.g. `theme.toml`) or switch palettes.
 #[derive(Debug, Clone)]
 pub struct Theme {
     pub bg: Color,

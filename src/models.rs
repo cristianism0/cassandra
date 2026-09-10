@@ -6,11 +6,11 @@ pub mod journal;
 pub mod sys;
 pub mod wtmp;
 
-pub use journal::{
-    JOURNAL_CRITICAL, JOURNAL_LOW, JOURNAL_MEDIUM, JOURNAL_KERNEL_COL, JournalError, JournalPreset, JournalRecord,
-    JournalScope,
-};
 pub use auth::AuthRecord;
+pub use journal::{
+    JOURNAL_CRITICAL, JOURNAL_KERNEL_COL, JOURNAL_LOW, JOURNAL_MEDIUM, JournalError, JournalPreset,
+    JournalRecord, JournalScope,
+};
 pub use sys::SysRecord;
 pub use wtmp::WtmpRecord;
 
@@ -20,6 +20,13 @@ pub enum LogEntry {
     Auth(AuthRecord),
     Wtmp(WtmpRecord),
     Journal(Box<JournalRecord>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LogSource {
+    Auth,
+    Sys,
+    Wtmp,
 }
 
 pub trait FromLogEntry {
@@ -102,11 +109,4 @@ pub enum PathStatus {
     Found,
     NotFound,
     Indeterminate(Error),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum LogSource {
-    Auth,
-    Sys,
-    Wtmp,
 }

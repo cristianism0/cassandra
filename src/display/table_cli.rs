@@ -103,6 +103,7 @@ fn build_table_with<T: TableDisplay>(
     table.trim_fmt()
 }
 
+// FIXME: the hiding columns is not working
 fn render_key_value<T: TableDisplay>(rows: Vec<&T>, hide_columns: Option<&[usize]>) -> String {
     let mut output = String::new();
     let all_headers = T::headers();
@@ -158,8 +159,8 @@ pub fn build_journal_table<T: TableDisplay + FromLogEntry>(
         return None;
     }
     let headers = T::headers();
-    let hide_columns = matches!(scope, JournalScope::System)
-        .then(|| column_indices(&headers, JOURNAL_KERNEL_COL));
+    let hide_columns =
+        matches!(scope, JournalScope::System).then(|| column_indices(&headers, JOURNAL_KERNEL_COL));
 
     if let TableMode::KeyValue = mode {
         return Some(render_key_value(rows, hide_columns.as_deref()));

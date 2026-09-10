@@ -1,12 +1,8 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/lunete-dark.gif">
-    <source media="(prefers-color-scheme: light)" srcset="assets/lunete-light.gif">
-    <img alt="lunete" src="assets/lunete-dark.gif">
-  </picture>
+  <img alt="Cassandra by Evelyn De Morgan" src="assets/Evelyn_de_Morgan-Cassandra-crop.jpg">
 </p>
 
-# lunete
+<h1 align="center">Cassandra</h1>
 
 A fast, Rust-based CLI tool for reading Linux system logs. Supports multiple log formats and sources with flexible output options.
 
@@ -43,7 +39,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 cargo build --release
 ```
 
-The binary will be at `target/release/lunete`. For a debug build: `cargo build` (output at `target/debug/lunete`).
+The binary will be at `target/release/cassandra`. For a debug build: `cargo build` (output at `target/debug/cassandra`).
 
 ### Granting Log Access (Recommended)
 
@@ -54,7 +50,7 @@ Most log files under `/var/log/` are root-only. Instead of running as root, gran
 sudo ./cap.sh
 
 # For debug build
-sudo ./cap.sh target/debug/lunete
+sudo ./cap.sh target/debug/cassandra
 ```
 
 > Re-run `cap.sh` after every rebuild—the capability is stripped on recompile.
@@ -62,17 +58,17 @@ sudo ./cap.sh target/debug/lunete
 ## Usage
 
 ```sh
-lunete [OPTIONS] <COMMAND>
+cassandra [OPTIONS] <COMMAND>
 ```
 
 ### Commands
 
 ```sh
-lunete sys                    # System logs
-lunete auth                   # Authentication logs
-lunete wtmp                   # Login records
-lunete journal                # User journal (default)
-lunete journal --scope system # System journal
+cassandra sys                    # System logs
+cassandra auth                   # Authentication logs
+cassandra wtmp                   # Login records
+cassandra journal                # User journal
+cassandra journal --scope system # System journal
 ```
 
 ### Display Options (Global)
@@ -88,13 +84,13 @@ These flags are **mutually exclusive** and work with any command:
 
 ```sh
 # Compact view, max 40 chars per column
-lunete auth --compact 40
+cassandra auth --compact 40
 
 # Only show timestamp and message columns
-lunete sys --summary time,msg
+cassandra sys --summary time,msg
 
 # Key/value output for a single field
-lunete journal --key message
+cassandra journal --key message
 ```
 
 ### Other Options
@@ -102,22 +98,22 @@ lunete journal --key message
 | Flag | Description |
 |------|-------------|
 | `-l, --lines <N>` | Limit output to last N lines |
-| `-r, --reverse` | Reverse output order (oldest first) |
-| `--rows <COLS>` | *(planned)* Select rows by index |
-| `--gravity <LEVEL>` | *(accepted, not implemented)* Journal priority filter: critical, medium, low |
-| `--search <TEXT>` | *(accepted, not implemented)* Grep-like filtering |
+| `-r, --reverse` | Reverse output order (newest first) |
+| `--rows <COLS>` | *(planned — not yet in the CLI)* Select rows by index |
+| `--gravity <LEVEL>` | *(planned — not yet in the CLI)* Journal priority filter: critical, medium, low |
+| `--search <TEXT>` | *(planned — not yet in the CLI)* Grep-like filtering |
 
 ```sh
-# Last 50 auth entries, newest first
-lunete auth -l 50
+# Last 50 auth entries, chronological order
+cassandra auth -l 50
 
 # Last 20 journal entries, oldest first
-lunete journal -l 20 -r
+cassandra journal -l 20 -r
 ```
 
-> **Note**: `--gravity` and `--search` are parsed but not yet wired to filtering logic.
+> **Note**: `--rows`, `--gravity` and `--search` are planned but not yet exposed by the CLI.
 
-Run `lunete --help` or `lunete <command> --help` for the full reference.
+Run `cassandra --help` or `cassandra <command> --help` for the full reference.
 
 ## Design Decisions
 
@@ -129,24 +125,35 @@ Run `lunete --help` or `lunete <command> --help` for the full reference.
 
 ```
 src/
-├── main.rs           # Entry point
-├── cli.rs            # CLI parsing (clap)
-├── models.rs         # Data structures & traits
+├── main.rs            # Entry point
+├── lib.rs             # Library root (module exports)
+├── cli.rs             # CLI parsing (clap)
+├── models.rs          # Shared models & re-exports
+├── display.rs         # Display module root
+├── parsers.rs         # Parsers module root
+├── utils.rs           # Utils module root
 ├── display/
-│   └── table_cli.rs  # Table rendering (comfy-table)
+│   ├── table_cli.rs   # Table rendering (comfy-table)
+│   └── theme.rs       # Themes (Rose Pine Moon / clap styling)
+├── models/
+│   ├── auth.rs        # Auth record model
+│   ├── journal.rs     # Journal record & scope model
+│   ├── sys.rs         # Syslog record model
+│   └── wtmp.rs        # Wtmp record model
 ├── parsers/
-│   ├── selector.rs   # Parser dispatch
-│   ├── sys.rs        # RFC 3164 syslog parser
-│   ├── auth.rs       # Auth/secure parser (RFC 3164)
-│   ├── wtmp.rs       # Binary wtmp parser
-│   └── journal.rs    # systemd journal parser
+│   ├── selector.rs    # Parser dispatch
+│   ├── sys.rs         # RFC 3164 syslog parser
+│   ├── auth.rs        # Auth/secure parser (RFC 3164)
+│   ├── wtmp.rs        # Binary wtmp parser
+│   └── journal.rs     # systemd journal parser
 └── utils/
-    └── discovery.rs  # File detection & metadata
+    └── discovery.rs   # File detection & metadata
 ```
 
 ## Dependencies
 
 - `clap` — CLI parsing
+- `anstyle` — Styling/ANSI colors (themes)
 - `comfy-table` — Table rendering
 - `regex` — Log line parsing
 - `systemd` — Journal access

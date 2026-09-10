@@ -10,8 +10,8 @@ impl JournalParser for JournalLog {
     fn parser(
         &self,
         journal: &mut Journal,
-        lines: Option<u64>,
-        reverse: bool,
+        _lines: Option<u64>,
+        _reverse: bool,
     ) -> Result<Vec<LogEntry>, JournalError> {
         journal.seek_tail().map_err(|e| {
             JournalError::IoError(format!(
