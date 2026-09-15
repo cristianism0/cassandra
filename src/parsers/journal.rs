@@ -36,20 +36,16 @@ impl JournalParser for JournalLog {
             })?
             .is_some()
         {
-            let record = extract_record(journal).map_err(|e| {
-                JournalError::FieldMissing(format!(
-                    "Could not extract the record from journal line due to error: {e:#?}"
-                ))
-            })?;
+            let record = extract_record(journal);
             entries.push(LogEntry::Journal(Box::new(record)));
         }
         Ok(entries)
     }
 }
 
-fn extract_record(journal: &mut Journal) -> Result<JournalRecord, JournalError> {
+fn extract_record(journal: &mut Journal) -> JournalRecord {
     //mount the struct
-    Ok(JournalRecord {
+    JournalRecord {
         message: extract_field(journal, "MESSAGE").unwrap_or_default(),
         priority: extract_field(journal, "PRIORITY"),
         code_file: extract_field(journal, "CODE_FILE"),
@@ -58,26 +54,26 @@ fn extract_record(journal: &mut Journal) -> Result<JournalRecord, JournalError> 
         syslog_facility: extract_field(journal, "SYSLOG_FACILITY"),
         syslog_identifier: extract_field(journal, "SYSLOG_IDENTIFIER"),
         tid: extract_field(journal, "TID"),
-        _audit_loginuid: extract_field(journal, "_AUDIT_LOGINUID"),
-        _audit_session: extract_field(journal, "_AUDIT_SESSION"),
-        _boot_id: extract_field(journal, "_BOOT_ID"),
-        _gid: extract_field(journal, "_GID"),
-        _hostname: extract_field(journal, "_HOSTNAME"),
-        _machine_id: extract_field(journal, "_MACHINE_ID"),
-        _pid: extract_field(journal, "_PID"),
-        _runtime_scope: extract_field(journal, "_RUNTIME_SCOPE"),
-        _selinux_context: extract_field(journal, "_SELINUX_CONTEXT"),
-        _source_monotonic_timestamp: extract_field(journal, "_SOURCE_MONOTONIC_TIMESTAMP"),
-        _source_boottime_timestamp: extract_field(journal, "_SOURCE_BOOTTIME_TIMESTAMP"),
-        _source_realtime_timestamp: extract_field(journal, "_SOURCE_REALTIME_TIMESTAMP"),
-        _systemd_cgroup: extract_field(journal, "_SYSTEMD_CGROUP"),
-        _systemd_owner_uid: extract_field(journal, "_SYSTEMD_OWNER_UID"),
-        _systemd_slice: extract_field(journal, "_SYSTEMD_SLICE"),
-        _systemd_unit: extract_field(journal, "_SYSTEMD_UNIT"),
-        _systemd_user_slice: extract_field(journal, "_SYSTEMD_USER_SLICE"),
-        _transport: extract_field(journal, "_TRANSPORT"),
-        _uid: extract_field(journal, "_UID"),
-    })
+        audit_loginuid: extract_field(journal, "_AUDIT_LOGINUID"),
+        audit_session: extract_field(journal, "_AUDIT_SESSION"),
+        boot_id: extract_field(journal, "_BOOT_ID"),
+        gid: extract_field(journal, "_GID"),
+        hostname: extract_field(journal, "_HOSTNAME"),
+        machine_id: extract_field(journal, "_MACHINE_ID"),
+        pid: extract_field(journal, "_PID"),
+        runtime_scope: extract_field(journal, "_RUNTIME_SCOPE"),
+        selinux_context: extract_field(journal, "_SELINUX_CONTEXT"),
+        source_monotonic_timestamp: extract_field(journal, "_SOURCE_MONOTONIC_TIMESTAMP"),
+        source_boottime_timestamp: extract_field(journal, "_SOURCE_BOOTTIME_TIMESTAMP"),
+        source_realtime_timestamp: extract_field(journal, "_SOURCE_REALTIME_TIMESTAMP"),
+        systemd_cgroup: extract_field(journal, "_SYSTEMD_CGROUP"),
+        systemd_owner_uid: extract_field(journal, "_SYSTEMD_OWNER_UID"),
+        systemd_slice: extract_field(journal, "_SYSTEMD_SLICE"),
+        systemd_unit: extract_field(journal, "_SYSTEMD_UNIT"),
+        systemd_user_slice: extract_field(journal, "_SYSTEMD_USER_SLICE"),
+        transport: extract_field(journal, "_TRANSPORT"),
+        uid: extract_field(journal, "_UID"),
+    }
 }
 
 fn extract_field(journal: &mut Journal, name: &'static str) -> Option<String> {

@@ -6,8 +6,14 @@ use crate::models::{Finfo, LogEntry, LogSource, journal::JournalError, journal::
 use crate::parsers::ParseError;
 use crate::parsers::{auth::AuthLog, journal::JournalLog, sys::SysLog, wtmp::WtmpLog};
 
+/// # Errors
+/// This function will propagate the errors caused from the parsers inside this crate.
+/// The erros that can be propate here will be the local-files only.
+/// - Regex Erros
+/// - Convertion Errors
+/// - Finfo errors (traverse, mode, lack of authorization)
 pub fn parser_selector(
-    file_info: Finfo,
+    file_info: &Finfo,
     lines: Option<u64>,
     reverse: bool,
 ) -> Result<Vec<LogEntry>, ParseError> {
@@ -31,6 +37,13 @@ pub fn parser_selector(
     }
 }
 
+//#TODO: Panicking may happen and will happen in different distros: I shall handle all the
+//flutuating field, for instance: a system may not have Selinux and thus, have nothing from this
+//field.
+/// # Errors
+/// This function will push the errors from the systemd-journald parsing.
+/// - Bad API connection.
+/// - Panicking on unwrap None values from the API
 pub fn journal_parsed(
     journal_scope: JournalScope,
     lines: Option<u64>,
@@ -43,6 +56,13 @@ pub fn journal_parsed(
 }
 
 pub trait LogParser {
+    /// # Errors
+    /// The parser function will return errors on those specific conditions:
+    /// - Bad converting -> values from u64 may be truncated or bad sized.
+    /// - Bad regex matching -> The regex is based on the RFC 3164, other configurations or
+    ///   different header construction will collapse the regex pattern and return nothing.
+    /// - Bad buffer creation -> The buffer can create lines with bad bits chucksize, which will
+    ///   cause truncated errors.
     fn parser(
         &self,
         path: &Path,
@@ -50,20 +70,29 @@ pub trait LogParser {
         reverse: bool,
     ) -> Result<Vec<LogEntry>, ParseError>;
 
+    /// # Errors
+    /// This function will propagate the errors from the Finfo information.
     fn check_access(&self, path: &Path) -> Result<(), ParseError> {
         match File::open(path) {
             Ok(_) => Ok(()),
             Err(e) if e.kind() == ErrorKind::NotFound => Err(ParseError::IoError(format!(
-                "Path doesn't exists or was moved: {path:?}"
+                "Path doesn't exists or was moved: {}",
+                path.display()
             ))),
             Err(e) => Err(ParseError::IoError(format!(
-                "Cannot open path {path:?} due to error: {e}"
+                "Cannot open path {} due to error: {e}",
+                path.display()
             ))),
         }
     }
 }
 
 pub trait JournalParser {
+    /// # Errors
+    /// This function may error during bad API connection.
+    /// This can cause due to:
+    /// - Lack of jounald (uses or openrc or elogind).
+    /// - Lack of permission or trust
     fn connect(&self, scope: JournalScope) -> Result<Journal, JournalError> {
         let mut opts = OpenOptions::default();
         opts.local_only(true).runtime_only(false);
@@ -79,6 +108,12 @@ pub trait JournalParser {
             JournalError::Unavailable(format!("Cannot connect the journal socket due to: {e}"))
         })
     }
+
+    /// # Errors
+    /// This function shall get errors during the parsing for:
+    /// - Bad field value convertion.
+    /// - Bad field value extraction.
+    /// - Bad unwrap.
     fn parser(
         &self,
         journal: &mut Journal,

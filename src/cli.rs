@@ -118,19 +118,21 @@ enum GravityArgs {
 }
 
 impl ArgsC {
-    pub fn table_mode(&self) -> Option<TableMode> {
+    pub fn table_mode(&self) -> TableMode {
         if let Some(columns) = &self.summary {
-            Some(TableMode::Summary {
+            TableMode::Summary {
                 columns: columns.clone(),
-            })
+            }
         } else if let Some(width) = self.compact {
-            Some(TableMode::Compact {
+            TableMode::Compact {
                 max_col_width: width,
-            })
+            }
         } else if self.key.is_some() {
-            Some(TableMode::KeyValue)
-        } else {
-            Some(TableMode::Standard)
+            TableMode::KeyValue
+        }
+        // No need to Some() here since else is triggered on fallback
+        else {
+            TableMode::Standard
         }
     }
 }
@@ -150,7 +152,7 @@ pub fn run_cli() {
         None => None,
     };
 
-    let tmode = args.table_mode().unwrap_or(TableMode::Standard);
+    let tmode = args.table_mode();
 
     let revs = args.reverse.unwrap_or(false);
 
@@ -205,7 +207,7 @@ where
     };
 
     // TODO: still to wire in the parser -> rows, gravity enum
-    let ret = match parser_selector(vf, lines, reverse) {
+    let ret = match parser_selector(&vf, lines, reverse) {
         Ok(e) => e,
         Err(e) => match e {
             ParseError::IoError(e) => {
@@ -244,7 +246,9 @@ fn possible_paths(lsource: LogSource) -> Vec<&'static SourceCandidate> {
 
 fn filtered_finfo(psc: Vec<&SourceCandidate>) -> Option<Finfo> {
     for p in psc {
-        let f = Finfo::gather_info(p);
+        let f = Finfo::gather_info(p)
+            .map_err(|e| format!("An error ocurred during the Finfo construction: {e:?}"))
+            .ok()?;
         if f.path.exists() {
             return Some(f);
         }
