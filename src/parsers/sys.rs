@@ -25,37 +25,56 @@ impl LogParser for SysLog {
         }
 
         let f = File::open(path).map_err(|e| {
-            ParseError::IoError(format!("Cannot open file at {path:#?} due to: {e}"))
+            ParseError::IoError(format!(
+                "Cannot open file at {} due to: {e}",
+                path.display()
+            ))
         })?;
 
-        let mut bufr = BufReader::new(f);
-        let mut bufl = String::new();
+        let mut bufread = BufReader::new(f);
+        let mut bufline = String::new();
 
-        let limit = lines.map(|n| n as usize);
-        let mut deque = match limit {
-            Some(n) => VecDeque::with_capacity(n),
+        let limit = lines.map(|n| {
+            usize::try_from(n).map_err(|e| {
+                ParseError::IoError(format!(
+                    "Could not convert the number of lines at {} due to: {e}",
+                    path.display()
+                ))
+            })
+        });
+
+        let mut deque = match &limit {
+            Some(val) => {
+                let m = match val.as_ref() {
+                    Ok(n) => *n,
+                    _ => 0,
+                };
+
+                VecDeque::with_capacity(m)
+            }
             None => VecDeque::new(),
         };
 
-        while bufr.read_line(&mut bufl).map_err(|e| {
+        while bufread.read_line(&mut bufline).map_err(|e| {
             ParseError::MalformedLine(format!(
-                "File with malformed line was found while reading log file at {path:?}: {e}"
+                "File with malformed line was found while reading log file at {}: {e}",
+                path.display()
             ))
         })? > 0
         {
             let entry = LogEntry::Sys(
-                parse_re(&SYS_RE, bufl.trim_end())
-                    .expect("Cannot get the information line due to bad regex match."),
+                parse_re(&SYS_RE, bufline.trim_end())
+                    .expect("Cannot get the information due to bad regex match."),
             );
 
-            if let Some(n) = limit
-                && deque.len() == n
+            if let Some(n) = &limit
+                && deque.len() == *n.as_ref().expect("asd")
             {
                 deque.pop_front();
             }
 
             deque.push_back(entry);
-            bufl.clear();
+            bufline.clear();
         }
 
         let mut entries = Vec::with_capacity(deque.len());

@@ -28,21 +28,30 @@ impl LogParser for AuthLog {
         }
 
         let f = File::open(path).map_err(|e| {
-            ParseError::IoError(format!("Cannot open file at {path:?} due to: {e}"))
+            ParseError::IoError(format!(
+                "Cannot open file at {} due to: {e}",
+                path.display()
+            ))
         })?;
 
         let mut bufr = BufReader::new(f);
         let mut bufl = String::new();
 
-        let limit = lines.map(|n| n as usize);
+        let limit = lines.map(usize::try_from);
         let mut deque = match limit {
-            Some(n) => VecDeque::with_capacity(n),
+            Some(n) => VecDeque::with_capacity(n.map_err(|e| {
+                ParseError::IoError(format!(
+                    "Could not create the buffer to read the auth file at {} due to: {e}",
+                    path.display()
+                ))
+            })?),
             None => VecDeque::new(),
         };
 
         while bufr.read_line(&mut bufl).map_err(|e| {
             ParseError::MalformedLine(format!(
-                "File with malformed line was found while reading log file at {path:?}: {e}"
+                "File with malformed line was found while reading log file at {}: {e}",
+                path.display()
             ))
         })? > 0
         {
@@ -51,7 +60,13 @@ impl LogParser for AuthLog {
             );
 
             if let Some(n) = limit
-                && deque.len() == n
+                && deque.len()
+                    == n.map_err(|e| {
+                        ParseError::UnexpectedFormat(format!(
+                            "Could not associated the exact line in the buffer at {} due to: {e}",
+                            path.display()
+                        ))
+                    })?
             {
                 deque.pop_front();
             }
