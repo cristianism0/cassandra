@@ -174,3 +174,63 @@ impl TableDisplay for WtmpRecord {
         ]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_opt_some_and_none() {
+        assert_eq!(display_opt(&Some("x".to_string())), "x");
+        assert_eq!(display_opt(&None), "-");
+    }
+
+    #[test]
+    fn headers_match_fields_len_for_all_records() {
+        let sys = SysRecord {
+            priority: None,
+            timestamp: "t".to_string(),
+            host: "h".to_string(),
+            process: "p".to_string(),
+            message: "m".to_string(),
+        };
+        assert_eq!(SysRecord::headers().len(), sys.fields().len());
+
+        let auth = AuthRecord {
+            priority: None,
+            timestamp: "t".to_string(),
+            host: "h".to_string(),
+            process: "p".to_string(),
+            caller: None,
+            message: "m".to_string(),
+        };
+        assert_eq!(AuthRecord::headers().len(), auth.fields().len());
+
+        let wtmp = WtmpRecord {
+            ut_type: 7,
+            ut_pid: 1,
+            ut_dname: "d".to_string(),
+            ut_id: "i".to_string(),
+            ut_user: "u".to_string(),
+            ut_host: "h".to_string(),
+            e_termination: 0,
+            e_exit: 0,
+        };
+        assert_eq!(WtmpRecord::headers().len(), wtmp.fields().len());
+    }
+
+    #[test]
+    fn none_options_render_as_dash() {
+        let auth = AuthRecord {
+            priority: None,
+            timestamp: "t".to_string(),
+            host: "h".to_string(),
+            process: "p".to_string(),
+            caller: None,
+            message: "m".to_string(),
+        };
+        let fields = auth.fields();
+        assert_eq!(fields[0], "-");
+        assert_eq!(fields[4], "-");
+    }
+}

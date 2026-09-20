@@ -199,3 +199,172 @@ pub fn render_all_tables(records: Vec<RecordType<'_>>, mode: &TableMode) -> Vec<
     }
     rendered
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::display::TableMode;
+    use crate::models::journal::JournalScope;
+
+    fn sys_entries() -> Vec<LogEntry> {
+        vec![
+            LogEntry::Sys(SysRecord {
+                priority: Some("34".to_string()),
+                timestamp: "Oct 11 22:14:15".to_string(),
+                host: "myhost".to_string(),
+                process: "proc".to_string(),
+                message: "hello world, this is a long message".to_string(),
+            }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "Oct 11 22:14:16".to_string(),
+                host: "other".to_string(),
+                process: "cron".to_string(),
+                message: "second".to_string(),
+            }),
+        ]
+    }
+
+    fn journal_entry() -> Vec<LogEntry> {
+        vec![LogEntry::Journal(Box::new(JournalRecord {
+            message: "msg".to_string(),
+            priority: Some("3".to_string()),
+            code_file: None,
+            code_func: None,
+            code_line: None,
+            syslog_facility: None,
+            syslog_identifier: None,
+            tid: None,
+            audit_loginuid: None,
+            audit_session: None,
+            boot_id: None,
+            gid: None,
+            hostname: Some("myhost".to_string()),
+            machine_id: None,
+            pid: None,
+            runtime_scope: None,
+            selinux_context: None,
+            source_monotonic_timestamp: None,
+            source_boottime_timestamp: None,
+            source_realtime_timestamp: None,
+            systemd_cgroup: None,
+            systemd_owner_uid: None,
+            systemd_slice: None,
+            systemd_unit: None,
+            systemd_user_slice: None,
+            transport: Some("journal".to_string()),
+            uid: None,
+        }))]
+    }
+
+    #[test]
+    fn truncate_short_string_unchanged() {
+        assert_eq!(truncate_content("abc", 10), "abc");
+        assert_eq!(truncate_content("abc", 3), "abc");
+    }
+
+    #[test]
+    fn truncate_long_string_adds_ellipsis() {
+        assert_eq!(truncate_content("abcdef", 5), "ab...");
+        assert_eq!(truncate_content("abcdef", 2), "ab");
+    }
+
+    #[test]
+    fn column_indices_case_insensitive_and_missing() {
+        let headers = ["message", "host", "process"];
+        let got = column_indices(&headers, &["HOST".to_string(), "missing".to_string()]);
+        assert_eq!(got, vec![1]);
+    }
+
+    #[test]
+    fn group_filters_by_type() {
+        let entries = sys_entries();
+        let sys: Vec<&SysRecord> = group(&entries);
+        let auth: Vec<&AuthRecord> = group(&entries);
+        assert_eq!(sys.len(), 2);
+        assert!(auth.is_empty());
+    }
+
+    #[test]
+    fn build_table_standard_has_headers_and_rows() {
+        let entries = sys_entries();
+        let out = build_table::<SysRecord>(&entries, &TableMode::Standard).expect("table");
+        assert!(out.contains("timestamp"));
+        assert!(out.contains("hello world"));
+    }
+
+    #[test]
+    fn build_table_empty_returns_none() {
+        let empty: Vec<LogEntry> = vec![];
+        assert!(build_table::<SysRecord>(&empty, &TableMode::Standard).is_none());
+    }
+
+    #[test]
+    fn build_table_compact_truncates() {
+        let entries = sys_entries();
+        let out = build_table::<SysRecord>(
+            &entries,
+            &TableMode::Compact { max_col_width: 8 },
+        )
+        .expect("table");
+        assert!(out.contains("..."));
+    }
+
+    #[test]
+    fn build_table_summary_keeps_only_requested() {
+        let entries = sys_entries();
+        let out = build_table::<SysRecord>(
+            &entries,
+            &TableMode::Summary {
+                columns: vec!["message".to_string()],
+            },
+        )
+        .expect("table");
+        assert!(out.contains("message"));
+        assert!(!out.contains("timestamp"));
+    }
+
+    #[test]
+    fn build_table_keyvalue_marks_entries() {
+        let entries = sys_entries();
+        let out = build_table::<SysRecord>(&entries, &TableMode::KeyValue).expect("table");
+        assert!(out.contains("[ Entry 1 ]"));
+        assert!(out.contains("[ Entry 2 ]"));
+    }
+
+    #[test]
+    fn build_journal_user_scope_keeps_hostname() {
+        let entries = journal_entry();
+        let out = build_journal_table::<JournalRecord>(
+            &entries,
+            &JournalScope::User,
+            &TableMode::Standard,
+        )
+        .expect("table");
+        assert!(out.contains("_hostname"));
+        assert!(out.contains("myhost"));
+    }
+
+    #[test]
+    fn build_journal_system_scope_hides_kernel_cols() {
+        let entries = journal_entry();
+        let out = build_journal_table::<JournalRecord>(
+            &entries,
+            &JournalScope::System,
+            &TableMode::Standard,
+        )
+        .expect("table");
+        assert!(!out.contains("_hostname"));
+    }
+
+    #[test]
+    fn render_all_tables_skips_empty() {
+        let sys = sys_entries();
+        let empty: Vec<LogEntry> = vec![];
+        let out = render_all_tables(
+            vec![RecordType::Sys(&sys), RecordType::Auth(&empty)],
+            &TableMode::Standard,
+        );
+        assert_eq!(out.len(), 1);
+    }
+}

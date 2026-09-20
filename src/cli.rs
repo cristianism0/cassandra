@@ -255,3 +255,75 @@ fn filtered_finfo(psc: Vec<&SourceCandidate>) -> Option<Finfo> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(
+        summary: Option<Vec<String>>,
+        compact: Option<usize>,
+        key: Option<String>,
+        standard: bool,
+    ) -> ArgsC {
+        ArgsC {
+            summary,
+            compact,
+            key,
+            standard,
+            lines: None,
+            reverse: None,
+            log: LogKey::Sys,
+        }
+    }
+
+    #[test]
+    fn table_mode_defaults_to_standard() {
+        let mode = args(None, None, None, false).table_mode();
+        assert!(matches!(mode, TableMode::Standard));
+    }
+
+    #[test]
+    fn table_mode_summary_wins_over_compact_and_key() {
+        let mode = args(
+            Some(vec!["message".to_string()]),
+            Some(10),
+            Some("message".to_string()),
+            false,
+        )
+        .table_mode();
+        assert!(matches!(mode, TableMode::Summary { .. }));
+    }
+
+    #[test]
+    fn table_mode_compact_wins_over_key() {
+        let mode = args(None, Some(20), Some("message".to_string()), false).table_mode();
+        assert!(matches!(mode, TableMode::Compact { max_col_width: 20 }));
+    }
+
+    #[test]
+    fn table_mode_key_maps_to_keyvalue() {
+        let mode = args(None, None, Some("message".to_string()), false).table_mode();
+        assert!(matches!(mode, TableMode::KeyValue));
+    }
+
+    #[test]
+    fn possible_paths_filters_by_source() {
+        let sys = possible_paths(LogSource::Sys);
+        assert!(!sys.is_empty());
+        assert!(sys.iter().all(|s| s.source == LogSource::Sys));
+
+        let auth = possible_paths(LogSource::Auth);
+        assert!(!auth.is_empty());
+        assert!(auth.iter().all(|s| s.source == LogSource::Auth));
+    }
+
+    #[test]
+    fn filtered_finfo_returns_none_when_nothing_exists() {
+        let missing = SourceCandidate {
+            source: LogSource::Sys,
+            path: "/definitely/missing/cassandra-test-cli.log",
+        };
+        assert!(filtered_finfo(vec![&missing]).is_none());
+    }
+}
