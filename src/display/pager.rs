@@ -1,10 +1,6 @@
 use std::io::{self, IsTerminal, Write};
 use std::process::{Command, Stdio};
 
-/// Write `output` to stdout directly or via `less` pager.
-/// - Only pages when `stdout` is a TTY, `no_pager` is false, and `PAGER` != "cat"
-/// - Respects `$PAGER` (fallback `less`), adds `-S -R` for horizontal scroll + colors
-/// - For pipe/CI (`!is_terminal`) or `--no-pager`, prints directly
 pub fn pager_or_print(output: &str, no_pager: bool) {
     if no_pager || should_skip_pager() {
         print!("{output}");

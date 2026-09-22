@@ -20,7 +20,7 @@ use crate::parsers::{
 use crate::models::{
     Finfo, FromLogEntry, LogSource, SOURCES, SourceCandidate,
     auth::AuthRecord,
-    journal::{JournalRecord, JournalScope, JOURNAL_KERNEL_COL},
+    journal::{JOURNAL_KERNEL_COL, JournalRecord, JournalScope},
     sys::SysRecord,
     wtmp::WtmpRecord,
 };
@@ -83,13 +83,33 @@ struct ArgsC {
     rows: Option<Vec<String>>,
     #[arg(short, long, global = true, help = "Limit to last N lines")]
     lines: Option<u64>,
-    #[arg(short, long, global = true, help = "Reverse output order — newest first")]
+    #[arg(
+        short,
+        long,
+        global = true,
+        help = "Reverse output order — newest first"
+    )]
     reverse: bool,
-    #[arg(long, short = 'e', global = true, help = "Regex search across all fields — e.g. --search 'error|failed' (-e)")]
+    #[arg(
+        long,
+        short = 'e',
+        global = true,
+        help = "Regex search across all fields — e.g. --search 'error|failed' (-e)"
+    )]
     search: Option<String>,
-    #[arg(long, short = 'S', global = true, help = "Show entries since time — e.g. --since '2024-01-01', '15 days ago', '2h ago', 'now-2h', 'today', 'yesterday' (UTC) (-S)")]
+    #[arg(
+        long,
+        short = 'S',
+        global = true,
+        help = "Show entries since time — e.g. --since '2024-01-01', '15 days ago', '2h ago', 'now-2h', 'today', 'yesterday' (UTC) (-S)"
+    )]
     since: Option<String>,
-    #[arg(long, short = 'U', global = true, help = "Show entries until time — e.g. --until '2024-01-01' (UTC) (-U)")]
+    #[arg(
+        long,
+        short = 'U',
+        global = true,
+        help = "Show entries until time — e.g. --until '2024-01-01' (UTC) (-U)"
+    )]
     until: Option<String>,
     #[command(subcommand)]
     log: LogKey,
@@ -116,7 +136,12 @@ enum LogKey {
     Journal {
         #[arg(long, default_value = "user", help = "Journal scope — system or user")]
         scope: JournalScope,
-        #[arg(long, short = 'g', value_enum, help = "Filter by gravity — critical, medium, low (maps to priority) (-g)")]
+        #[arg(
+            long,
+            short = 'g',
+            value_enum,
+            help = "Filter by gravity — critical, medium, low (maps to priority) (-g)"
+        )]
         gravity: Option<GravityArgs>,
         #[arg(long, help = "List available columns for this source and exit")]
         list_columns: bool,
@@ -159,7 +184,9 @@ pub fn run_cli() {
     let l: Option<u64> = match args.lines {
         Some(0) => {
             eprintln!("Error: --lines 0 is invalid — no lines to display.");
-            eprintln!("Hint: Use a value greater than 0, e.g. -l 10 or omit --lines for the default (50 for journal, all for files).");
+            eprintln!(
+                "Hint: Use a value greater than 0, e.g. -l 10 or omit --lines for the default (50 for journal, all for files)."
+            );
             eprintln!("Details: --lines expects N > 0");
             exit(2);
         }
@@ -176,7 +203,8 @@ pub fn run_cli() {
             Ok(re) => Some(re),
             Err(e) => {
                 eprintln!("Error: Invalid search regex (--search) '{pat}': {e}");
-                eprintln!("Hint: Use a valid Rust regex, e.g. --search 'error|failed' or --search 'Failed.*password' (-e). Escape special chars or use --rows for exact match.");
+                eprintln!("Hint: Use a valid Rust regex, e.g. --search 'error|failed' or --search 'Failed.*password' (-e).
+                    Escape special chars or use --rows for exact match.");
                 eprintln!("Details: regex parse error: {e}");
                 exit(2);
             }
@@ -189,7 +217,8 @@ pub fn run_cli() {
             Ok(v) => Some(v),
             Err(e) => {
                 eprintln!("Error: Invalid --rows filter: {e}");
-                eprintln!("Hint: Use --rows col=value[,col2=value2] — e.g. --rows host=myhost,process=sshd (-F). Quote values with spaces.");
+                eprintln!("Hint: Use --rows col=value[,col2=value2] — e.g. --rows host=myhost,process=sshd (-F).
+                    Quote values with spaces.");
                 eprintln!("Details: expected col=value, got '{raw:?}'");
                 exit(2);
             }
@@ -202,7 +231,10 @@ pub fn run_cli() {
             Ok(dt) => Some(dt),
             Err(e) => {
                 eprintln!("Error: Invalid --since '{s}': {e}");
-                eprintln!("Hint: Try --since '2024-01-01', '2024-01-01T10:00:00', '15 days ago', '2h ago', 'now-2h', 'today', 'yesterday' (UTC). Short: -S");
+                eprintln!(
+                    "Hint: Try --since '2024-01-01', '2024-01-01T10:00:00', '15 days ago',
+                    '2h ago', 'now-2h', 'today', 'yesterday' (UTC). Short: -S"
+                );
                 eprintln!("Details: {e}");
                 exit(2);
             }
@@ -225,14 +257,16 @@ pub fn run_cli() {
         && since > until
     {
         eprintln!("Error: --since time is after --until time");
-        eprintln!("Hint: Swap --since and --until or use --since '2024-01-01' --until '2024-12-31' with since < until.");
+        eprintln!(
+            "Hint: Swap --since and --until or use --since
+            '2024-01-01' --until '2024-12-31' with since < until."
+        );
         eprintln!("Details: since={since} (UTC) > until={until} (UTC)");
         exit(2);
     }
 
     let is_wtmp = matches!(args.log, LogKey::Wtmp { .. });
-    if is_wtmp && (since_dt.is_some() || until_dt.is_some()) {
-    }
+    if is_wtmp && (since_dt.is_some() || until_dt.is_some()) {}
 
     let is_raw = matches!(tmode, TableMode::Raw);
     match args.log {
@@ -251,7 +285,11 @@ pub fn run_cli() {
                     until_dt.as_ref(),
                 );
             } else {
-                let lines_for_parser = if since_dt.is_some() || until_dt.is_some() { None } else { l };
+                let lines_for_parser = if since_dt.is_some() || until_dt.is_some() {
+                    None
+                } else {
+                    l
+                };
                 print_table::<SysRecord>(
                     &tmode,
                     LogSource::Sys,
@@ -281,7 +319,11 @@ pub fn run_cli() {
                     until_dt.as_ref(),
                 );
             } else {
-                let lines_for_parser = if since_dt.is_some() || until_dt.is_some() { None } else { l };
+                let lines_for_parser = if since_dt.is_some() || until_dt.is_some() {
+                    None
+                } else {
+                    l
+                };
                 print_table::<AuthRecord>(
                     &tmode,
                     LogSource::Auth,
@@ -325,16 +367,17 @@ pub fn run_cli() {
                 );
             }
         }
-        LogKey::Journal { scope, gravity, list_columns } => {
+        LogKey::Journal {
+            scope,
+            gravity,
+            list_columns,
+        } => {
             if list_columns {
                 match scope {
                     JournalScope::System => {
                         let headers = JournalRecord::headers();
                         for h in headers {
-                            if !JOURNAL_KERNEL_COL
-                                .iter()
-                                .any(|c| c.eq_ignore_ascii_case(h))
-                            {
+                            if !JOURNAL_KERNEL_COL.iter().any(|c| c.eq_ignore_ascii_case(h)) {
                                 println!("{h}");
                             }
                         }
@@ -363,8 +406,13 @@ pub fn run_cli() {
                 let mut j = match journal_parsed(scope, l, revs, since_usec, until_usec) {
                     Ok(le) => le,
                     Err(e) => {
-                        eprintln!("Error: Cannot retrieve entries from journal (scope={scope:?}) — journal unavailable or no permission.");
-                        eprintln!("Hint: Check that systemd-journald is running, try --scope user vs --scope system, and ensure read access — try 'sudo ./cap.sh' or 'journalctl --verify'.");
+                        eprintln!(
+                            "Error: Cannot retrieve entries from journal (scope={scope:?}) — journal unavailable or no permission."
+                        );
+                        eprintln!(
+                            "Hint: Check that systemd-journald is running, 
+                            try --scope user vs --scope system, and ensure read access — try 'sudo ./cap.sh' or 'journalctl --verify'."
+                        );
                         eprintln!("Details: {e:#?}");
                         exit(2);
                     }
@@ -377,7 +425,9 @@ pub fn run_cli() {
                     let validated = validate_row_columns::<JournalRecord>(filters);
                     if let Err(e) = validated {
                         eprintln!("Error: Invalid --rows filter for journal: {e}");
-                        eprintln!("Hint: Use -F col=value — e.g. -F systemd_unit=sshd.service. Check --list-columns for journal (scope={scope:?}).");
+                        eprintln!(
+                            "Hint: Use -F col=value — e.g. -F systemd_unit=sshd.service. Check --list-columns for journal (scope={scope:?})."
+                        );
                         eprintln!("Details: {e}");
                         exit(2);
                     }
@@ -390,8 +440,18 @@ pub fn run_cli() {
                 let table = build_journal_table::<JournalRecord>(&j, &scope, &tmode);
                 let output = table.unwrap_or_else(|| {
                     eprintln!("Error: No entries to display for journal (scope={scope:?}) — table empty after filtering (0 rows).");
-                    eprintln!("Hint: Try relaxing filters: remove -e/--search, -F/--rows, widen -S/--since/-U/--until, increase -l, or use --raw. Check --list-columns and try without gravity.");
-                    eprintln!("Details: scope={scope:?}, gravity={gravity_dbg:?}, search={}, rows={}, since={}, until={}, lines={:?}, reverse={}; result 0 rows (journal empty or all filtered)", search_re.is_some(), row_filters.is_some(), since_usec.is_some(), until_usec.is_some(), l, revs);
+                    eprintln!("Hint: Try relaxing filters: remove -e/--search, -F/--rows, widen -S/--since/-U/--until, increase -l, or use --raw.
+                        Check --list-columns and try without gravity.");
+                    eprintln!("Details: 
+                        scope={scope:?}, gravity={gravity_dbg:?}, 
+                        search={}, rows={}, since={}, until={}, 
+                        lines={:?}, reverse={}; result 0 
+                        rows (journal empty or all filtered)", 
+                        search_re.is_some(),
+                        row_filters.is_some(),
+                        since_usec.is_some(),
+                        until_usec.is_some(),
+                        l, revs);
                     exit(2);
                 });
                 let output = format!("{output}\n");
@@ -415,7 +475,9 @@ fn parse_row_filters(raw: &[String]) -> Result<Vec<(String, String)>, String> {
         if trimmed.is_empty() {
             return Err("empty filter".to_string());
         }
-        let (k, v) = trimmed.split_once('=').ok_or_else(|| format!("missing '=' in '{s}'"))?;
+        let (k, v) = trimmed
+            .split_once('=')
+            .ok_or_else(|| format!("missing '=' in '{s}'"))?;
         let k = k.trim();
         let v = v.trim();
         if k.is_empty() || v.is_empty() {
@@ -430,7 +492,10 @@ fn validate_row_columns<T: TableDisplay>(filters: &[(String, String)]) -> Result
     let headers = T::headers();
     for (col, _) in filters {
         if !headers.iter().any(|h| h.eq_ignore_ascii_case(col)) {
-            return Err(format!("unknown column '{col}' — available: {}", headers.join(", ")));
+            return Err(format!(
+                "unknown column '{col}' — available: {}",
+                headers.join(", ")
+            ));
         }
     }
     Ok(())
@@ -541,13 +606,21 @@ fn apply_time_filter_with_now(
                 crate::models::LogEntry::Journal(j) => {
                     if let Some(ts) = &j.source_realtime_timestamp {
                         if let Ok(micros) = ts.parse::<i64>() {
-                            Some(Utc.timestamp_micros(micros).single().expect("valid timestamp"))
+                            Some(
+                                Utc.timestamp_micros(micros)
+                                    .single()
+                                    .expect("valid timestamp"),
+                            )
                         } else {
                             None
                         }
                     } else if let Some(ts) = &j.source_boottime_timestamp {
                         if let Ok(micros) = ts.parse::<i64>() {
-                            Some(Utc.timestamp_micros(micros).single().expect("valid timestamp"))
+                            Some(
+                                Utc.timestamp_micros(micros)
+                                    .single()
+                                    .expect("valid timestamp"),
+                            )
                         } else {
                             None
                         }
@@ -628,7 +701,11 @@ fn print_table<T>(
         && let Err(e) = validate_row_columns::<T>(filters)
     {
         eprintln!("Error: Invalid --rows filter: {e}");
-        eprintln!("Hint: Use --rows col=value[,col2=value2] — e.g. --rows host=myhost,process=sshd (-F). Check --list-columns for {source:?} available columns.");
+        eprintln!(
+            "Hint: Use --rows col=value[,col2=value2]
+            — e.g. --rows host=myhost,process=sshd (-F).
+            Check --list-columns for {source:?} available columns."
+        );
         eprintln!("Details: {e}");
         exit(2);
     }
@@ -639,7 +716,13 @@ fn print_table<T>(
         Some(e) => e,
         None => {
             eprintln!("Error: No readable log file found for {source:?}.");
-            eprintln!("Hint: Check that log files exist ({}) and that Cassandra has read access — try 'sudo ./cap.sh' or run with sudo. See 'cassandra {} --help' for expected paths.", attempted.join(", "), format!("{source:?}").to_lowercase());
+            eprintln!(
+                "Hint: Check that log files exist ({})
+                and that Cassandra has read access — try 'sudo ./cap.sh' or run with sudo.
+                See 'cassandra {} --help' for expected paths.",
+                attempted.join(", "),
+                format!("{source:?}").to_lowercase()
+            );
             eprintln!("Details: attempted paths: {}", attempted.join(", "));
             exit(2);
         }
@@ -651,20 +734,42 @@ fn print_table<T>(
         Ok(e) => e,
         Err(e) => match e {
             ParseError::IoError(e) => {
-                eprintln!("Error: I/O error reading {} at {}: {e}", format!("{source:?}").to_lowercase(), vf.path.display());
-                eprintln!("Hint: Ensure the binary has read access — try 'sudo ./cap.sh', check file permissions, or run with sudo.");
+                eprintln!(
+                    "Error: I/O error reading {} at {}: {e}",
+                    format!("{source:?}").to_lowercase(),
+                    vf.path.display()
+                );
+                eprintln!(
+                    "Hint: Ensure the binary has read access — try 'sudo ./cap.sh', check file permissions, or run with sudo."
+                );
                 eprintln!("Details: {e}");
                 exit(2);
             }
             ParseError::MalformedLine(e) => {
-                eprintln!("Error: Malformed line in {} at {} — not RFC 3164.", format!("{source:?}").to_lowercase(), vf.path.display());
-                eprintln!("Hint: Check the file with --raw or 'head {}' — RFC 3164 expects '<pri>Mon DD HH:MM:SS host process: msg'. Use --raw to skip malformed lines with a warning.", vf.path.display());
+                eprintln!(
+                    "Error: Malformed line in {} at {} — not RFC 3164.",
+                    format!("{source:?}").to_lowercase(),
+                    vf.path.display()
+                );
+                eprintln!(
+                    "Hint: Check the file with --raw or 'head {}' — RFC 3164 expects 
+                    '<pri>Mon DD HH:MM:SS host process: msg'. Use --raw to skip malformed lines with a warning.",
+                    vf.path.display()
+                );
                 eprintln!("Details: {e}");
                 exit(2);
             }
             ParseError::UnexpectedFormat(e) => {
-                eprintln!("Error: Failed to parse {} at {} — format does not match RFC 3164.", format!("{source:?}").to_lowercase(), vf.path.display());
-                eprintln!("Hint: Verify log format (RFC 3164) or try --raw to stream raw lines. Check 'cassandra {} --list-columns' for expected fields.", format!("{source:?}").to_lowercase());
+                eprintln!(
+                    "Error: Failed to parse {} at {} — format does not match RFC 3164.",
+                    format!("{source:?}").to_lowercase(),
+                    vf.path.display()
+                );
+                eprintln!(
+                    "Hint: Verify log format (RFC 3164) or try --raw to stream raw lines.
+                    Check 'cassandra {} --list-columns' for expected fields.",
+                    format!("{source:?}").to_lowercase()
+                );
                 eprintln!("Details: {e}");
                 exit(2);
             }
@@ -686,13 +791,31 @@ fn print_table<T>(
         ret = apply_lines_limit(ret, lines_outer, reverse);
     }
 
-
     let table = match build_table::<T>(&ret, mode) {
         Some(e) => e,
         None => {
-            eprintln!("Error: No entries to display for {} — table empty after filtering (0 rows).", format!("{source:?}").to_lowercase());
-            eprintln!("Hint: Try relaxing filters: remove --search/--rows, widen --since/--until, increase -l, or use --raw for tab-separated output. Check --list-columns for {} and try without filters.", format!("{source:?}").to_lowercase());
-            eprintln!("Details: source={source:?} at {}, filters: search={}, rows={}, since={}, until={}, lines={:?}, reverse={}, mode={:?}; result 0 rows (maybe file empty or all filtered out)", vf.path.display(), search_re.is_some(), row_filters.is_some(), since.is_some(), until.is_some(), lines_outer, reverse, mode);
+            eprintln!(
+                "Error: No entries to display for {} — table empty after filtering (0 rows).",
+                format!("{source:?}").to_lowercase()
+            );
+            eprintln!(
+                "Hint: Try relaxing filters: remove --search/--rows,
+                widen --since/--until, increase -l, or use --raw for tab-separated output.
+                Check --list-columns for {} and try without filters.",
+                format!("{source:?}").to_lowercase()
+            );
+            eprintln!(
+                "Details: source={source:?} at {}, filters: search={}, rows={}, since={},
+                until={}, lines={:?}, reverse={}, mode={:?}; result 0 rows (maybe file empty or all filtered out)",
+                vf.path.display(),
+                search_re.is_some(),
+                row_filters.is_some(),
+                since.is_some(),
+                until.is_some(),
+                lines_outer,
+                reverse,
+                mode
+            );
             exit(2);
         }
     };
@@ -717,7 +840,9 @@ fn print_raw_file<T>(
         && let Err(e) = validate_row_columns::<T>(filters)
     {
         eprintln!("Error: Invalid --rows filter: {e}");
-        eprintln!("Hint: Use --rows col=value[,col2=value2] — e.g. --rows host=myhost,process=sshd (-F). Check --list-columns for {source:?} available columns.");
+        eprintln!(
+            "Hint: Use --rows col=value[,col2=value2] — e.g. --rows host=myhost,process=sshd (-F). Check --list-columns for {source:?} available columns."
+        );
         eprintln!("Details: {e}");
         exit(2);
     }
@@ -728,15 +853,17 @@ fn print_raw_file<T>(
         Some(e) => e,
         None => {
             eprintln!("Error: No readable log file found for {source:?}.");
-            eprintln!("Hint: Check that log files exist ({}) and that Cassandra has read access — try 'sudo ./cap.sh' or run with sudo. See 'cassandra {} --help' for expected paths.", attempted.join(", "), format!("{source:?}").to_lowercase());
+            eprintln!(
+                "Hint: Check that log files exist ({}) and that Cassandra has read access — 
+                try 'sudo ./cap.sh' or run with sudo. See 'cassandra {} --help' for expected paths.",
+                attempted.join(", "),
+                format!("{source:?}").to_lowercase()
+            );
             eprintln!("Details: attempted paths: {}", attempted.join(", "));
             exit(2);
         }
     };
 
-    // Use streaming `try_iter()` instead of `parser()`'s Vec — this is the `raw` path
-    // that avoids `comfy-table` wrapping and table buffering. The iterator owns the
-    // `VecDeque` after filtering (keeps last N without reading whole file twice).
     use crate::parsers::selector::LogParser;
     use crate::parsers::{auth::AuthLog, sys::SysLog, wtmp::WtmpLog};
 
@@ -747,8 +874,14 @@ fn print_raw_file<T>(
                 match p.try_iter(&vf.path) {
                     Ok(it) => it,
                     Err(e) => {
-                        eprintln!("Error: I/O error opening {} at {}: {e:?}", format!("{source:?}").to_lowercase(), vf.path.display());
-                        eprintln!("Hint: Ensure the binary has read access — try 'sudo ./cap.sh', check permissions, or run with sudo.");
+                        eprintln!(
+                            "Error: I/O error opening {} at {}: {e:?}",
+                            format!("{source:?}").to_lowercase(),
+                            vf.path.display()
+                        );
+                        eprintln!(
+                            "Hint: Ensure the binary has read access — try 'sudo ./cap.sh', check permissions, or run with sudo."
+                        );
                         eprintln!("Details: {e:?}");
                         exit(2);
                     }
@@ -759,8 +892,14 @@ fn print_raw_file<T>(
                 match p.try_iter(&vf.path) {
                     Ok(it) => it,
                     Err(e) => {
-                        eprintln!("Error: I/O error opening {} at {}: {e:?}", format!("{source:?}").to_lowercase(), vf.path.display());
-                        eprintln!("Hint: Ensure the binary has read access — try 'sudo ./cap.sh', check permissions, or run with sudo.");
+                        eprintln!(
+                            "Error: I/O error opening {} at {}: {e:?}",
+                            format!("{source:?}").to_lowercase(),
+                            vf.path.display()
+                        );
+                        eprintln!(
+                            "Hint: Ensure the binary has read access — try 'sudo ./cap.sh', check permissions, or run with sudo."
+                        );
                         eprintln!("Details: {e:?}");
                         exit(2);
                     }
@@ -771,8 +910,13 @@ fn print_raw_file<T>(
                 match p.try_iter(&vf.path) {
                     Ok(it) => it,
                     Err(e) => {
-                        eprintln!("Error: I/O error opening wtmp at {}: {e:?}", vf.path.display());
-                        eprintln!("Hint: Check /var/log/wtmp exists and has read access — try 'sudo ./cap.sh'.");
+                        eprintln!(
+                            "Error: I/O error opening wtmp at {}: {e:?}",
+                            vf.path.display()
+                        );
+                        eprintln!(
+                            "Hint: Check /var/log/wtmp exists and has read access — try 'sudo ./cap.sh'."
+                        );
                         eprintln!("Details: {e:?}");
                         exit(2);
                     }
@@ -796,13 +940,21 @@ fn print_raw_file<T>(
             crate::models::LogEntry::Journal(j) => {
                 if let Some(ts) = &j.source_realtime_timestamp {
                     if let Ok(micros) = ts.parse::<i64>() {
-                        Some(Utc.timestamp_micros(micros).single().expect("valid timestamp"))
+                        Some(
+                            Utc.timestamp_micros(micros)
+                                .single()
+                                .expect("valid timestamp"),
+                        )
                     } else {
                         None
                     }
                 } else if let Some(ts) = &j.source_boottime_timestamp {
                     if let Ok(micros) = ts.parse::<i64>() {
-                        Some(Utc.timestamp_micros(micros).single().expect("valid timestamp"))
+                        Some(
+                            Utc.timestamp_micros(micros)
+                                .single()
+                                .expect("valid timestamp"),
+                        )
                     } else {
                         None
                     }
@@ -865,7 +1017,6 @@ fn print_raw_file<T>(
         }
     };
 
-    // - `lines` Some: keep last N in a bounded deque (needs buffering, but only N)
     let stdout = io::stdout();
     let mut handle = stdout.lock();
 
@@ -984,7 +1135,9 @@ fn print_raw_journal(
         && let Err(e) = validate_row_columns::<JournalRecord>(filters)
     {
         eprintln!("Error: Invalid --rows filter for journal: {e}");
-        eprintln!("Hint: Use -F col=value — e.g. -F systemd_unit=sshd.service. Check --list-columns for journal (scope={scope:?}).");
+        eprintln!(
+            "Hint: Use -F col=value — e.g. -F systemd_unit=sshd.service. Check --list-columns for journal (scope={scope:?})."
+        );
         eprintln!("Details: {e}");
         exit(2);
     }
@@ -996,8 +1149,13 @@ fn print_raw_journal(
     let mut journal = match jlog.connect(scope.clone()) {
         Ok(j) => j,
         Err(e) => {
-            eprintln!("Error: Cannot retrieve entries from journal (scope={scope:?}) — journal unavailable or no permission.");
-            eprintln!("Hint: Check that systemd-journald is running, try --scope user vs --scope system, and ensure read access — try 'sudo ./cap.sh' or 'journalctl --verify'.");
+            eprintln!(
+                "Error: Cannot retrieve entries from journal (scope={scope:?}) — journal unavailable or no permission."
+            );
+            eprintln!(
+                "Hint: Check that systemd-journald is running,
+                try --scope user vs --scope system, and ensure read access — try 'sudo ./cap.sh' or 'journalctl --verify'."
+            );
             eprintln!("Details: {e:#?}");
             exit(2);
         }
@@ -1008,8 +1166,15 @@ fn print_raw_journal(
     let iter = match jlog.try_iter(&mut journal, lines_for_iter, since_usec, until_usec) {
         Ok(it) => it,
         Err(e) => {
-            eprintln!("Error: Cannot read journal (scope={scope:?}) at realtime {}: {e:#?}", since_usec.map(|u| u.to_string()).unwrap_or_else(|| "tail".to_string()));
-            eprintln!("Hint: Try without --since/--until, check journalctl, or try --scope system vs user.");
+            eprintln!(
+                "Error: Cannot read journal (scope={scope:?}) at realtime {}: {e:#?}",
+                since_usec
+                    .map(|u| u.to_string())
+                    .unwrap_or_else(|| "tail".to_string())
+            );
+            eprintln!(
+                "Hint: Try without --since/--until, check journalctl, or try --scope system vs user."
+            );
             eprintln!("Details: {e:#?}");
             exit(2);
         }
@@ -1052,7 +1217,8 @@ fn print_raw_journal(
                         let headers = JournalRecord::headers();
                         let mut ok = true;
                         for (col, val) in filters {
-                            if let Some(idx) = headers.iter().position(|h| h.eq_ignore_ascii_case(col))
+                            if let Some(idx) =
+                                headers.iter().position(|h| h.eq_ignore_ascii_case(col))
                                 && fields[idx] != *val
                             {
                                 ok = false;
@@ -1257,7 +1423,9 @@ mod tests {
             search: None,
             since: None,
             until: None,
-            log: LogKey::Sys { list_columns: false },
+            log: LogKey::Sys {
+                list_columns: false,
+            },
         }
     }
 
@@ -1315,7 +1483,13 @@ mod tests {
     fn parse_row_filters_ok() {
         let raw = vec!["host=myhost".to_string(), "process=sshd".to_string()];
         let got = parse_row_filters(&raw).expect("parse ok");
-        assert_eq!(got, vec![("host".to_string(), "myhost".to_string()), ("process".to_string(), "sshd".to_string())]);
+        assert_eq!(
+            got,
+            vec![
+                ("host".to_string(), "myhost".to_string()),
+                ("process".to_string(), "sshd".to_string())
+            ]
+        );
     }
 
     #[test]
@@ -1332,16 +1506,34 @@ mod tests {
 
     #[test]
     fn validate_row_columns_ok_and_err() {
-        assert!(validate_row_columns::<SysRecord>(&[("host".to_string(), "x".to_string())]).is_ok());
-        assert!(validate_row_columns::<SysRecord>(&[("HOST".to_string(), "x".to_string())]).is_ok());
-        assert!(validate_row_columns::<SysRecord>(&[("nope".to_string(), "x".to_string())]).is_err());
+        assert!(
+            validate_row_columns::<SysRecord>(&[("host".to_string(), "x".to_string())]).is_ok()
+        );
+        assert!(
+            validate_row_columns::<SysRecord>(&[("HOST".to_string(), "x".to_string())]).is_ok()
+        );
+        assert!(
+            validate_row_columns::<SysRecord>(&[("nope".to_string(), "x".to_string())]).is_err()
+        );
     }
 
     #[test]
     fn apply_rows_filter_keeps_matching() {
         let entries = vec![
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "myhost".to_string(), process: "sshd".to_string(), message: "m1".to_string() }),
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "other".to_string(), process: "sshd".to_string(), message: "m2".to_string() }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "t".to_string(),
+                host: "myhost".to_string(),
+                process: "sshd".to_string(),
+                message: "m1".to_string(),
+            }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "t".to_string(),
+                host: "other".to_string(),
+                process: "sshd".to_string(),
+                message: "m2".to_string(),
+            }),
         ];
         let filters = vec![("host".to_string(), "myhost".to_string())];
         let out = apply_rows_filter::<SysRecord>(entries, &filters);
@@ -1355,8 +1547,20 @@ mod tests {
     #[test]
     fn apply_search_filter_regex() {
         let entries = vec![
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "h".to_string(), process: "p".to_string(), message: "error failed".to_string() }),
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "h".to_string(), process: "p".to_string(), message: "all good".to_string() }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "t".to_string(),
+                host: "h".to_string(),
+                process: "p".to_string(),
+                message: "error failed".to_string(),
+            }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "t".to_string(),
+                host: "h".to_string(),
+                process: "p".to_string(),
+                message: "all good".to_string(),
+            }),
         ];
         let re = Regex::new("error").unwrap();
         let out = apply_search_filter::<SysRecord>(entries, &re);
@@ -1366,8 +1570,20 @@ mod tests {
     #[test]
     fn apply_search_filter_matches_any_field() {
         let entries = vec![
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "myhost".to_string(), process: "p".to_string(), message: "m".to_string() }),
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "other".to_string(), process: "p".to_string(), message: "m".to_string() }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "t".to_string(),
+                host: "myhost".to_string(),
+                process: "p".to_string(),
+                message: "m".to_string(),
+            }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "t".to_string(),
+                host: "other".to_string(),
+                process: "p".to_string(),
+                message: "m".to_string(),
+            }),
         ];
         let re = Regex::new("myhost").unwrap();
         let out = apply_search_filter::<SysRecord>(entries, &re);
@@ -1377,8 +1593,64 @@ mod tests {
     #[test]
     fn gravity_filter_critical_keeps_low_priority_numbers() {
         let entries = vec![
-            LogEntry::Journal(Box::new(JournalRecord { message: "m".to_string(), priority: Some("2".to_string()), code_file: None, code_func: None, code_line: None, syslog_facility: None, syslog_identifier: None, tid: None, audit_loginuid: None, audit_session: None, boot_id: None, gid: None, hostname: None, machine_id: None, pid: None, runtime_scope: None, selinux_context: None, source_monotonic_timestamp: None, source_boottime_timestamp: None, source_realtime_timestamp: None, systemd_cgroup: None, systemd_owner_uid: None, systemd_slice: None, systemd_unit: None, systemd_user_slice: None, transport: None, uid: None })),
-            LogEntry::Journal(Box::new(JournalRecord { message: "m".to_string(), priority: Some("6".to_string()), code_file: None, code_func: None, code_line: None, syslog_facility: None, syslog_identifier: None, tid: None, audit_loginuid: None, audit_session: None, boot_id: None, gid: None, hostname: None, machine_id: None, pid: None, runtime_scope: None, selinux_context: None, source_monotonic_timestamp: None, source_boottime_timestamp: None, source_realtime_timestamp: None, systemd_cgroup: None, systemd_owner_uid: None, systemd_slice: None, systemd_unit: None, systemd_user_slice: None, transport: None, uid: None })),
+            LogEntry::Journal(Box::new(JournalRecord {
+                message: "m".to_string(),
+                priority: Some("2".to_string()),
+                code_file: None,
+                code_func: None,
+                code_line: None,
+                syslog_facility: None,
+                syslog_identifier: None,
+                tid: None,
+                audit_loginuid: None,
+                audit_session: None,
+                boot_id: None,
+                gid: None,
+                hostname: None,
+                machine_id: None,
+                pid: None,
+                runtime_scope: None,
+                selinux_context: None,
+                source_monotonic_timestamp: None,
+                source_boottime_timestamp: None,
+                source_realtime_timestamp: None,
+                systemd_cgroup: None,
+                systemd_owner_uid: None,
+                systemd_slice: None,
+                systemd_unit: None,
+                systemd_user_slice: None,
+                transport: None,
+                uid: None,
+            })),
+            LogEntry::Journal(Box::new(JournalRecord {
+                message: "m".to_string(),
+                priority: Some("6".to_string()),
+                code_file: None,
+                code_func: None,
+                code_line: None,
+                syslog_facility: None,
+                syslog_identifier: None,
+                tid: None,
+                audit_loginuid: None,
+                audit_session: None,
+                boot_id: None,
+                gid: None,
+                hostname: None,
+                machine_id: None,
+                pid: None,
+                runtime_scope: None,
+                selinux_context: None,
+                source_monotonic_timestamp: None,
+                source_boottime_timestamp: None,
+                source_realtime_timestamp: None,
+                systemd_cgroup: None,
+                systemd_owner_uid: None,
+                systemd_slice: None,
+                systemd_unit: None,
+                systemd_user_slice: None,
+                transport: None,
+                uid: None,
+            })),
         ];
         let out = apply_gravity_filter(entries, &GravityArgs::Critical);
         assert_eq!(out.len(), 1);
@@ -1390,9 +1662,35 @@ mod tests {
 
     #[test]
     fn gravity_filter_none_priority_is_filtered_out() {
-        let entries = vec![
-            LogEntry::Journal(Box::new(JournalRecord { message: "m".to_string(), priority: None, code_file: None, code_func: None, code_line: None, syslog_facility: None, syslog_identifier: None, tid: None, audit_loginuid: None, audit_session: None, boot_id: None, gid: None, hostname: None, machine_id: None, pid: None, runtime_scope: None, selinux_context: None, source_monotonic_timestamp: None, source_boottime_timestamp: None, source_realtime_timestamp: None, systemd_cgroup: None, systemd_owner_uid: None, systemd_slice: None, systemd_unit: None, systemd_user_slice: None, transport: None, uid: None })),
-        ];
+        let entries = vec![LogEntry::Journal(Box::new(JournalRecord {
+            message: "m".to_string(),
+            priority: None,
+            code_file: None,
+            code_func: None,
+            code_line: None,
+            syslog_facility: None,
+            syslog_identifier: None,
+            tid: None,
+            audit_loginuid: None,
+            audit_session: None,
+            boot_id: None,
+            gid: None,
+            hostname: None,
+            machine_id: None,
+            pid: None,
+            runtime_scope: None,
+            selinux_context: None,
+            source_monotonic_timestamp: None,
+            source_boottime_timestamp: None,
+            source_realtime_timestamp: None,
+            systemd_cgroup: None,
+            systemd_owner_uid: None,
+            systemd_slice: None,
+            systemd_unit: None,
+            systemd_user_slice: None,
+            transport: None,
+            uid: None,
+        }))];
         let out = apply_gravity_filter(entries, &GravityArgs::Low);
         assert!(out.is_empty());
     }
@@ -1401,26 +1699,57 @@ mod tests {
     fn parse_row_filters_trims_spaces() {
         let raw = vec![" host = myhost ".to_string(), "process = sshd ".to_string()];
         let got = parse_row_filters(&raw).expect("parse ok");
-        assert_eq!(got, vec![("host".to_string(), "myhost".to_string()), ("process".to_string(), "sshd".to_string())]);
+        assert_eq!(
+            got,
+            vec![
+                ("host".to_string(), "myhost".to_string()),
+                ("process".to_string(), "sshd".to_string())
+            ]
+        );
     }
 
     #[test]
     fn apply_rows_filter_multiple_and() {
         let entries = vec![
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "myhost".to_string(), process: "sshd".to_string(), message: "m1".to_string() }),
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "myhost".to_string(), process: "cron".to_string(), message: "m2".to_string() }),
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "other".to_string(), process: "sshd".to_string(), message: "m3".to_string() }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "t".to_string(),
+                host: "myhost".to_string(),
+                process: "sshd".to_string(),
+                message: "m1".to_string(),
+            }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "t".to_string(),
+                host: "myhost".to_string(),
+                process: "cron".to_string(),
+                message: "m2".to_string(),
+            }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "t".to_string(),
+                host: "other".to_string(),
+                process: "sshd".to_string(),
+                message: "m3".to_string(),
+            }),
         ];
-        let filters = vec![("host".to_string(), "myhost".to_string()), ("process".to_string(), "sshd".to_string())];
+        let filters = vec![
+            ("host".to_string(), "myhost".to_string()),
+            ("process".to_string(), "sshd".to_string()),
+        ];
         let out = apply_rows_filter::<SysRecord>(entries, &filters);
         assert_eq!(out.len(), 1);
     }
 
     #[test]
     fn apply_rows_filter_case_insensitive_column() {
-        let entries = vec![
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "myhost".to_string(), process: "p".to_string(), message: "m".to_string() }),
-        ];
+        let entries = vec![LogEntry::Sys(SysRecord {
+            priority: None,
+            timestamp: "t".to_string(),
+            host: "myhost".to_string(),
+            process: "p".to_string(),
+            message: "m".to_string(),
+        })];
         let filters = vec![("HOST".to_string(), "myhost".to_string())];
         let out = apply_rows_filter::<SysRecord>(entries, &filters);
         assert_eq!(out.len(), 1);
@@ -1428,7 +1757,37 @@ mod tests {
 
     #[test]
     fn gravity_filter_medium_and_low() {
-        let mk = |p: &str| LogEntry::Journal(Box::new(JournalRecord { message: "m".to_string(), priority: Some(p.to_string()), code_file: None, code_func: None, code_line: None, syslog_facility: None, syslog_identifier: None, tid: None, audit_loginuid: None, audit_session: None, boot_id: None, gid: None, hostname: None, machine_id: None, pid: None, runtime_scope: None, selinux_context: None, source_monotonic_timestamp: None, source_boottime_timestamp: None, source_realtime_timestamp: None, systemd_cgroup: None, systemd_owner_uid: None, systemd_slice: None, systemd_unit: None, systemd_user_slice: None, transport: None, uid: None }));
+        let mk = |p: &str| {
+            LogEntry::Journal(Box::new(JournalRecord {
+                message: "m".to_string(),
+                priority: Some(p.to_string()),
+                code_file: None,
+                code_func: None,
+                code_line: None,
+                syslog_facility: None,
+                syslog_identifier: None,
+                tid: None,
+                audit_loginuid: None,
+                audit_session: None,
+                boot_id: None,
+                gid: None,
+                hostname: None,
+                machine_id: None,
+                pid: None,
+                runtime_scope: None,
+                selinux_context: None,
+                source_monotonic_timestamp: None,
+                source_boottime_timestamp: None,
+                source_realtime_timestamp: None,
+                systemd_cgroup: None,
+                systemd_owner_uid: None,
+                systemd_slice: None,
+                systemd_unit: None,
+                systemd_user_slice: None,
+                transport: None,
+                uid: None,
+            }))
+        };
         let entries_med = vec![mk("4"), mk("5"), mk("6"), mk("7"), mk("2")];
         let med = apply_gravity_filter(entries_med, &GravityArgs::Medium);
         assert_eq!(med.len(), 2);
@@ -1441,8 +1800,26 @@ mod tests {
     fn apply_search_filter_wtmp() {
         use crate::models::wtmp::WtmpRecord;
         let entries = vec![
-            LogEntry::Wtmp(WtmpRecord { ut_type: 7, ut_pid: 1, ut_dname: "pts/0".to_string(), ut_id: "01".to_string(), ut_user: "alice".to_string(), ut_host: "myhost".to_string(), e_termination: 0, e_exit: 0 }),
-            LogEntry::Wtmp(WtmpRecord { ut_type: 7, ut_pid: 2, ut_dname: "pts/1".to_string(), ut_id: "02".to_string(), ut_user: "bob".to_string(), ut_host: "other".to_string(), e_termination: 0, e_exit: 0 }),
+            LogEntry::Wtmp(WtmpRecord {
+                ut_type: 7,
+                ut_pid: 1,
+                ut_dname: "pts/0".to_string(),
+                ut_id: "01".to_string(),
+                ut_user: "alice".to_string(),
+                ut_host: "myhost".to_string(),
+                e_termination: 0,
+                e_exit: 0,
+            }),
+            LogEntry::Wtmp(WtmpRecord {
+                ut_type: 7,
+                ut_pid: 2,
+                ut_dname: "pts/1".to_string(),
+                ut_id: "02".to_string(),
+                ut_user: "bob".to_string(),
+                ut_host: "other".to_string(),
+                e_termination: 0,
+                e_exit: 0,
+            }),
         ];
         let re = Regex::new("alice").unwrap();
         let out = apply_search_filter::<WtmpRecord>(entries, &re);
@@ -1453,8 +1830,26 @@ mod tests {
     fn apply_rows_filter_wtmp() {
         use crate::models::wtmp::WtmpRecord;
         let entries = vec![
-            LogEntry::Wtmp(WtmpRecord { ut_type: 7, ut_pid: 1, ut_dname: "pts/0".to_string(), ut_id: "01".to_string(), ut_user: "alice".to_string(), ut_host: "h1".to_string(), e_termination: 0, e_exit: 0 }),
-            LogEntry::Wtmp(WtmpRecord { ut_type: 7, ut_pid: 2, ut_dname: "pts/1".to_string(), ut_id: "02".to_string(), ut_user: "bob".to_string(), ut_host: "h2".to_string(), e_termination: 0, e_exit: 0 }),
+            LogEntry::Wtmp(WtmpRecord {
+                ut_type: 7,
+                ut_pid: 1,
+                ut_dname: "pts/0".to_string(),
+                ut_id: "01".to_string(),
+                ut_user: "alice".to_string(),
+                ut_host: "h1".to_string(),
+                e_termination: 0,
+                e_exit: 0,
+            }),
+            LogEntry::Wtmp(WtmpRecord {
+                ut_type: 7,
+                ut_pid: 2,
+                ut_dname: "pts/1".to_string(),
+                ut_id: "02".to_string(),
+                ut_user: "bob".to_string(),
+                ut_host: "h2".to_string(),
+                e_termination: 0,
+                e_exit: 0,
+            }),
         ];
         let filters = vec![("ut_user".to_string(), "bob".to_string())];
         let out = apply_rows_filter::<WtmpRecord>(entries, &filters);
@@ -1468,8 +1863,20 @@ mod tests {
     #[test]
     fn apply_search_filter_regex_special() {
         let entries = vec![
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "h".to_string(), process: "sshd".to_string(), message: "Failed password".to_string() }),
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "h".to_string(), process: "sshd".to_string(), message: "Accepted".to_string() }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "t".to_string(),
+                host: "h".to_string(),
+                process: "sshd".to_string(),
+                message: "Failed password".to_string(),
+            }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "t".to_string(),
+                host: "h".to_string(),
+                process: "sshd".to_string(),
+                message: "Accepted".to_string(),
+            }),
         ];
         let re = Regex::new("Failed.*password").unwrap();
         let out = apply_search_filter::<SysRecord>(entries, &re);
@@ -1479,29 +1886,72 @@ mod tests {
     #[test]
     fn apply_time_filter_sys_since_until() {
         let entries = vec![
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 11 22:14:15".to_string(), host: "h".to_string(), process: "p".to_string(), message: "m1".to_string() }),
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 12 10:00:00".to_string(), host: "h".to_string(), process: "p".to_string(), message: "m2".to_string() }),
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 13 01:00:00".to_string(), host: "h".to_string(), process: "p".to_string(), message: "m3".to_string() }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "Oct 11 22:14:15".to_string(),
+                host: "h".to_string(),
+                process: "p".to_string(),
+                message: "m1".to_string(),
+            }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "Oct 12 10:00:00".to_string(),
+                host: "h".to_string(),
+                process: "p".to_string(),
+                message: "m2".to_string(),
+            }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "Oct 13 01:00:00".to_string(),
+                host: "h".to_string(),
+                process: "p".to_string(),
+                message: "m3".to_string(),
+            }),
         ];
         let since = Utc.with_ymd_and_hms(2024, 10, 12, 0, 0, 0).unwrap();
         let until = Utc.with_ymd_and_hms(2024, 10, 12, 23, 59, 59).unwrap();
         let now = Utc.with_ymd_and_hms(2024, 10, 14, 0, 0, 0).unwrap();
-        let filtered: Vec<_> = entries.into_iter().filter(|e| {
-            if let crate::models::LogEntry::Sys(r) = e {
-                if let Ok(dt) = rfc3164_to_datetime(&r.timestamp, now) {
-                    dt >= since && dt <= until
-                } else { false }
-            } else { false }
-        }).collect();
+        let filtered: Vec<_> = entries
+            .into_iter()
+            .filter(|e| {
+                if let crate::models::LogEntry::Sys(r) = e {
+                    if let Ok(dt) = rfc3164_to_datetime(&r.timestamp, now) {
+                        dt >= since && dt <= until
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            })
+            .collect();
         assert_eq!(filtered.len(), 1);
     }
 
     #[test]
     fn apply_lines_limit_keeps_last_n() {
         let entries = vec![
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 11 22:14:15".to_string(), host: "h".to_string(), process: "p".to_string(), message: "1".to_string() }),
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 11 22:14:16".to_string(), host: "h".to_string(), process: "p".to_string(), message: "2".to_string() }),
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 11 22:14:17".to_string(), host: "h".to_string(), process: "p".to_string(), message: "3".to_string() }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "Oct 11 22:14:15".to_string(),
+                host: "h".to_string(),
+                process: "p".to_string(),
+                message: "1".to_string(),
+            }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "Oct 11 22:14:16".to_string(),
+                host: "h".to_string(),
+                process: "p".to_string(),
+                message: "2".to_string(),
+            }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "Oct 11 22:14:17".to_string(),
+                host: "h".to_string(),
+                process: "p".to_string(),
+                message: "3".to_string(),
+            }),
         ];
         let out = apply_lines_limit(entries, Some(2), false);
         assert_eq!(out.len(), 2);
@@ -1517,8 +1967,20 @@ mod tests {
     #[test]
     fn apply_lines_limit_reverse() {
         let entries = vec![
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 11 22:14:15".to_string(), host: "h".to_string(), process: "p".to_string(), message: "1".to_string() }),
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 11 22:14:16".to_string(), host: "h".to_string(), process: "p".to_string(), message: "2".to_string() }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "Oct 11 22:14:15".to_string(),
+                host: "h".to_string(),
+                process: "p".to_string(),
+                message: "1".to_string(),
+            }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "Oct 11 22:14:16".to_string(),
+                host: "h".to_string(),
+                process: "p".to_string(),
+                message: "2".to_string(),
+            }),
         ];
         let out = apply_lines_limit(entries, Some(2), true);
         assert_eq!(out.len(), 2);
@@ -1534,9 +1996,27 @@ mod tests {
     #[test]
     fn apply_time_filter_with_fixed_now() {
         let entries = vec![
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 11 22:14:15".to_string(), host: "h".to_string(), process: "p".to_string(), message: "m1".to_string() }),
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 12 10:00:00".to_string(), host: "h".to_string(), process: "p".to_string(), message: "m2".to_string() }),
-            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 13 01:00:00".to_string(), host: "h".to_string(), process: "p".to_string(), message: "m3".to_string() }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "Oct 11 22:14:15".to_string(),
+                host: "h".to_string(),
+                process: "p".to_string(),
+                message: "m1".to_string(),
+            }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "Oct 12 10:00:00".to_string(),
+                host: "h".to_string(),
+                process: "p".to_string(),
+                message: "m2".to_string(),
+            }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "Oct 13 01:00:00".to_string(),
+                host: "h".to_string(),
+                process: "p".to_string(),
+                message: "m3".to_string(),
+            }),
         ];
         let since = Utc.with_ymd_and_hms(2024, 10, 12, 0, 0, 0).unwrap();
         let until = Utc.with_ymd_and_hms(2024, 10, 12, 23, 59, 59).unwrap();
@@ -1551,11 +2031,98 @@ mod tests {
 
     #[test]
     fn apply_time_filter_journal() {
-        let micros = Utc.with_ymd_and_hms(2024, 10, 12, 10, 0, 0).unwrap().timestamp_micros();
+        let micros = Utc
+            .with_ymd_and_hms(2024, 10, 12, 10, 0, 0)
+            .unwrap()
+            .timestamp_micros();
         let entries = vec![
-            LogEntry::Journal(Box::new(JournalRecord { message: "m1".to_string(), priority: None, code_file: None, code_func: None, code_line: None, syslog_facility: None, syslog_identifier: None, tid: None, audit_loginuid: None, audit_session: None, boot_id: None, gid: None, hostname: None, machine_id: None, pid: None, runtime_scope: None, selinux_context: None, source_monotonic_timestamp: None, source_boottime_timestamp: None, source_realtime_timestamp: Some((micros - 1_000_000).to_string()), systemd_cgroup: None, systemd_owner_uid: None, systemd_slice: None, systemd_unit: None, systemd_user_slice: None, transport: None, uid: None })),
-            LogEntry::Journal(Box::new(JournalRecord { message: "m2".to_string(), priority: None, code_file: None, code_func: None, code_line: None, syslog_facility: None, syslog_identifier: None, tid: None, audit_loginuid: None, audit_session: None, boot_id: None, gid: None, hostname: None, machine_id: None, pid: None, runtime_scope: None, selinux_context: None, source_monotonic_timestamp: None, source_boottime_timestamp: None, source_realtime_timestamp: Some(micros.to_string()), systemd_cgroup: None, systemd_owner_uid: None, systemd_slice: None, systemd_unit: None, systemd_user_slice: None, transport: None, uid: None })),
-            LogEntry::Journal(Box::new(JournalRecord { message: "m3".to_string(), priority: None, code_file: None, code_func: None, code_line: None, syslog_facility: None, syslog_identifier: None, tid: None, audit_loginuid: None, audit_session: None, boot_id: None, gid: None, hostname: None, machine_id: None, pid: None, runtime_scope: None, selinux_context: None, source_monotonic_timestamp: None, source_boottime_timestamp: None, source_realtime_timestamp: Some((micros + 7_200_000_000).to_string()), systemd_cgroup: None, systemd_owner_uid: None, systemd_slice: None, systemd_unit: None, systemd_user_slice: None, transport: None, uid: None })),
+            LogEntry::Journal(Box::new(JournalRecord {
+                message: "m1".to_string(),
+                priority: None,
+                code_file: None,
+                code_func: None,
+                code_line: None,
+                syslog_facility: None,
+                syslog_identifier: None,
+                tid: None,
+                audit_loginuid: None,
+                audit_session: None,
+                boot_id: None,
+                gid: None,
+                hostname: None,
+                machine_id: None,
+                pid: None,
+                runtime_scope: None,
+                selinux_context: None,
+                source_monotonic_timestamp: None,
+                source_boottime_timestamp: None,
+                source_realtime_timestamp: Some((micros - 1_000_000).to_string()),
+                systemd_cgroup: None,
+                systemd_owner_uid: None,
+                systemd_slice: None,
+                systemd_unit: None,
+                systemd_user_slice: None,
+                transport: None,
+                uid: None,
+            })),
+            LogEntry::Journal(Box::new(JournalRecord {
+                message: "m2".to_string(),
+                priority: None,
+                code_file: None,
+                code_func: None,
+                code_line: None,
+                syslog_facility: None,
+                syslog_identifier: None,
+                tid: None,
+                audit_loginuid: None,
+                audit_session: None,
+                boot_id: None,
+                gid: None,
+                hostname: None,
+                machine_id: None,
+                pid: None,
+                runtime_scope: None,
+                selinux_context: None,
+                source_monotonic_timestamp: None,
+                source_boottime_timestamp: None,
+                source_realtime_timestamp: Some(micros.to_string()),
+                systemd_cgroup: None,
+                systemd_owner_uid: None,
+                systemd_slice: None,
+                systemd_unit: None,
+                systemd_user_slice: None,
+                transport: None,
+                uid: None,
+            })),
+            LogEntry::Journal(Box::new(JournalRecord {
+                message: "m3".to_string(),
+                priority: None,
+                code_file: None,
+                code_func: None,
+                code_line: None,
+                syslog_facility: None,
+                syslog_identifier: None,
+                tid: None,
+                audit_loginuid: None,
+                audit_session: None,
+                boot_id: None,
+                gid: None,
+                hostname: None,
+                machine_id: None,
+                pid: None,
+                runtime_scope: None,
+                selinux_context: None,
+                source_monotonic_timestamp: None,
+                source_boottime_timestamp: None,
+                source_realtime_timestamp: Some((micros + 7_200_000_000).to_string()),
+                systemd_cgroup: None,
+                systemd_owner_uid: None,
+                systemd_slice: None,
+                systemd_unit: None,
+                systemd_user_slice: None,
+                transport: None,
+                uid: None,
+            })),
         ];
         let since = Utc.with_ymd_and_hms(2024, 10, 12, 9, 0, 0).unwrap();
         let until = Utc.with_ymd_and_hms(2024, 10, 12, 11, 0, 0).unwrap();
@@ -1567,9 +2134,16 @@ mod tests {
     #[test]
     fn apply_time_filter_wtmp_ignores() {
         use crate::models::wtmp::WtmpRecord;
-        let entries = vec![
-            LogEntry::Wtmp(WtmpRecord { ut_type: 7, ut_pid: 1, ut_dname: "pts/0".to_string(), ut_id: "01".to_string(), ut_user: "alice".to_string(), ut_host: "h".to_string(), e_termination: 0, e_exit: 0 }),
-        ];
+        let entries = vec![LogEntry::Wtmp(WtmpRecord {
+            ut_type: 7,
+            ut_pid: 1,
+            ut_dname: "pts/0".to_string(),
+            ut_id: "01".to_string(),
+            ut_user: "alice".to_string(),
+            ut_host: "h".to_string(),
+            e_termination: 0,
+            e_exit: 0,
+        })];
         let since = Utc.with_ymd_and_hms(2024, 10, 12, 0, 0, 0).unwrap();
         let now = Utc.with_ymd_and_hms(2024, 10, 14, 0, 0, 0).unwrap();
         let out = apply_time_filter_with_now(entries, Some(&since), None, now);

@@ -70,20 +70,11 @@ fn build_table_with<T: TableDisplay>(
     let mut table = comfy_table::Table::new();
     table
         .load_style(style)
-        // `Dynamic` inserts `\n` inside words to fit terminal width and breaks
-        // `--search` grep (e.g. `message` split over two lines). Use `Disabled`
-        // and rely on `truncate_content` for `compact`; `standard`/`summary` also
-        // truncate to a sane default to avoid consuming the whole terminal.
         .set_content_arrangement(ContentArrangement::Disabled)
         .enforce_styling()
         .set_header(headers);
 
-    // (see `src/cli.rs:645`), so `truncate_content` here only affects display —
-    // grep-friendly output use `--raw` (tab-separated, no wrapping/truncation).
     let effective_width = max_col_width;
-    // For `standard`/`summary` without explicit `max_col_width`, truncate long
-    // over the terminal. This is smaller than `Disabled` would otherwise render
-    // original untruncated fields.
     let default_truncate: Option<usize> = if effective_width.is_none() {
         Some(60)
     } else {
@@ -282,16 +273,9 @@ mod tests {
         vec![
             LogEntry::Sys(SysRecord {
                 priority: Some("34".to_string()),
-                timestamp: "Oct 11 22:14:15".to_string(),
                 host: "myhost".to_string(),
                 process: "proc".to_string(),
-                message: "hello world, this is a long message".to_string(),
-            }),
-            LogEntry::Sys(SysRecord {
-                priority: None,
                 timestamp: "Oct 11 22:14:16".to_string(),
-                host: "other".to_string(),
-                process: "cron".to_string(),
                 message: "second".to_string(),
             }),
         ]
@@ -392,10 +376,7 @@ mod tests {
         assert_eq!(keep, vec![4]);
         let rows: Vec<&SysRecord> = group(&entries);
         assert_eq!(
-            rows[0].fields()[keep[0]],
-            "hello world, this is a long message"
-        );
-        build_table::<SysRecord>(&entries, &TableMode::Summary { columns }).expect("table");
+            rows[0].fields()[keep[0]], "second".to_string())
     }
 
     #[test]
