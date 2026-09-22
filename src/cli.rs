@@ -14,7 +14,11 @@ use crate::display::{
 
 use crate::parsers::{
     ParseError,
-    selector::{journal_parsed, parser_selector},
+    auth::AuthLog,
+    journal::JournalLog,
+    selector::{JournalParser, LogParser, journal_parsed, parser_selector},
+    sys::SysLog,
+    wtmp::WtmpLog,
 };
 
 use crate::models::{
@@ -29,6 +33,10 @@ use crate::utils::time::{datetime_to_micros, parse_human_time, rfc3164_to_dateti
 
 #[derive(Parser, Debug)]
 #[command(version, about, styles=rose_pine_moon())]
+// clap derive needs plain `bool` fields for the simple CLI flags (`--raw`,
+// `--standard`, `--no-pager`, `--reverse`); enums would add boilerplate with no
+// user-facing gain, so the pedantic struct-excessive-bools lint is allowed here.
+#[allow(clippy::struct_excessive_bools)]
 struct ArgsC {
     #[arg(
         short,
@@ -179,6 +187,10 @@ fn table_cli_args() -> ArgsC {
     ArgsC::parse()
 }
 
+// `run_cli` is a linear CLI flow (parse → validate → dispatch); splitting it into
+// smaller functions would only shuffle shared state around without making the code
+// clearer, hence the pedantic size lint is allowed here.
+#[allow(clippy::too_many_lines)]
 pub fn run_cli() {
     let args = table_cli_args();
     let l: Option<u64> = match args.lines {
@@ -267,7 +279,7 @@ pub fn run_cli() {
 
     let is_wtmp = matches!(args.log, LogKey::Wtmp { .. });
     if is_wtmp {
-        since_dt.is_some() || until_dt.is_some();
+        let _ = since_dt.is_some() || until_dt.is_some();
     }
 
     let is_raw = matches!(tmode, TableMode::Raw);
@@ -395,7 +407,7 @@ pub fn run_cli() {
             if is_raw {
                 print_raw_journal(
                     scope,
-                    gravity,
+                    gravity.as_ref(),
                     since_usec,
                     until_usec,
                     l,
@@ -567,9 +579,8 @@ fn matches_gravity(entry: &crate::models::LogEntry, gravity: &GravityArgs) -> bo
         crate::models::LogEntry::Auth(a) => a.priority.as_deref(),
         crate::models::LogEntry::Wtmp(_) => return false,
     };
-    let pri_str = match pri_opt {
-        Some(s) => s,
-        None => return false,
+    let Some(pri_str) = pri_opt else {
+        return false;
     };
     let pri: u8 = match pri_str.parse() {
         Ok(n) => n,
@@ -657,7 +668,9 @@ fn apply_lines_limit(
     reverse: bool,
 ) -> Vec<crate::models::LogEntry> {
     if let Some(n) = lines {
-        let n_usize = n as usize;
+        // `--lines` is a u64 from the CLI; usize is 64-bit here and an absurd
+        // value on 32-bit targets is clamped instead of silently truncating.
+        let n_usize = usize::try_from(n).unwrap_or(usize::MAX);
         let len = entries.len();
         if len <= n_usize {
             if reverse {
@@ -684,6 +697,9 @@ fn apply_lines_limit(
     }
 }
 
+// All knobs are the caller's filters and are passed together on purpose; grouping
+// them into a context struct would churn every call site without benefit.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn print_table<T>(
     mode: &TableMode,
     source: LogSource,
@@ -713,9 +729,7 @@ fn print_table<T>(
 
     let ps = possible_paths(source);
     let attempted: Vec<String> = ps.iter().map(|p| p.path.to_string()).collect();
-    let vf = if let Some(e) = filtered_finfo(ps) {
-        e
-    } else {
+    let Some(vf) = filtered_finfo(ps) else {
         eprintln!("Error: No readable log file found for {source:?}.");
         eprintln!(
             "Hint: Check that log files exist ({})
@@ -791,9 +805,7 @@ fn print_table<T>(
         ret = apply_lines_limit(ret, lines_outer, reverse);
     }
 
-    let table = if let Some(e) = build_table::<T>(&ret, mode) {
-        e
-    } else {
+    let Some(table) = build_table::<T>(&ret, mode) else {
         eprintln!(
             "Error: No entries to display for {} — table empty after filtering (0 rows).",
             format!("{source:?}").to_lowercase()
@@ -824,6 +836,8 @@ fn print_table<T>(
     pager_or_print(&output, no_pager);
 }
 
+// Streaming CLI flow (open → filter → print); same rationale as `print_table`.
+#[allow(clippy::too_many_lines)]
 fn print_raw_file<T>(
     source: LogSource,
     lines: Option<u64>,
@@ -848,9 +862,7 @@ fn print_raw_file<T>(
 
     let ps = possible_paths(source);
     let attempted: Vec<String> = ps.iter().map(|p| p.path.to_string()).collect();
-    let vf = if let Some(e) = filtered_finfo(ps) {
-        e
-    } else {
+    let Some(vf) = filtered_finfo(ps) else {
         eprintln!("Error: No readable log file found for {source:?}.");
         eprintln!(
             "Hint: Check that log files exist ({}) and that Cassandra has read access —
@@ -861,9 +873,6 @@ fn print_raw_file<T>(
         eprintln!("Details: attempted paths: {}", attempted.join(", "));
         exit(2);
     };
-
-    use crate::parsers::selector::LogParser;
-    use crate::parsers::{auth::AuthLog, sys::SysLog, wtmp::WtmpLog};
 
     let boxed_iter: Box<dyn Iterator<Item = Result<crate::models::LogEntry, ParseError>>> =
         match source {
@@ -1024,7 +1033,7 @@ fn print_raw_file<T>(
     }
 
     if let Some(n) = lines {
-        let n_usize = n as usize;
+        let n_usize = usize::try_from(n).unwrap_or(usize::MAX);
         if n_usize == 0 {
             let _ = handle.flush();
             return;
@@ -1119,9 +1128,11 @@ fn print_raw_file<T>(
     }
 }
 
+// Same linear-pipeline rationale as `print_table`/`print_raw_file`.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn print_raw_journal(
     scope: JournalScope,
-    gravity: Option<GravityArgs>,
+    gravity: Option<&GravityArgs>,
     since_usec: Option<u64>,
     until_usec: Option<u64>,
     lines: Option<u64>,
@@ -1139,9 +1150,6 @@ fn print_raw_journal(
         eprintln!("Details: {e}");
         exit(2);
     }
-
-    use crate::parsers::journal::JournalLog;
-    use crate::parsers::selector::JournalParser;
 
     let jlog = JournalLog;
     let mut journal = match jlog.connect(scope) {
@@ -1183,16 +1191,18 @@ fn print_raw_journal(
         exit(1);
     }
 
-    let mut filtered_deque: Option<VecDeque<crate::models::LogEntry>> =
+    let filtered_deque: Option<VecDeque<crate::models::LogEntry>> =
         if since_usec.is_some() && lines.is_some() {
-            Some(VecDeque::with_capacity(lines.unwrap() as usize))
+            // `lines` is Some in this branch; the capacity is only an allocation hint.
+            let capacity = usize::try_from(lines.unwrap_or(50)).unwrap_or(usize::MAX);
+            Some(VecDeque::with_capacity(capacity))
         } else {
             None
         };
     let mut filtered_vec: Vec<crate::models::LogEntry> = Vec::new();
 
-    if filtered_deque.is_some() {
-        let n_usize = lines.unwrap() as usize;
+    if let Some(mut deque) = filtered_deque {
+        let n_usize = usize::try_from(lines.unwrap_or(50)).unwrap_or(usize::MAX);
         for res in iter {
             let entry = match res {
                 Ok(e) => e,
@@ -1240,13 +1250,11 @@ fn print_raw_journal(
             {
                 continue;
             }
-            let deque = filtered_deque.as_mut().unwrap();
             if deque.len() == n_usize {
                 deque.pop_front();
             }
             deque.push_back(entry);
         }
-        let deque = filtered_deque.unwrap();
         if reverse {
             for entry in deque.into_iter().rev() {
                 if let Some(rec) = JournalRecord::from_entry(&entry) {
@@ -1264,7 +1272,9 @@ fn print_raw_journal(
         return;
     }
 
-    if reverse && filtered_deque.is_none() {
+    // Reaching this point means `filtered_deque` was None (the Some branch above
+    // already returned), so only `reverse` matters here.
+    if reverse {
         for res in iter {
             let entry = match res {
                 Ok(e) => e,

@@ -177,7 +177,7 @@ src/
 - `regex` — Log line parsing
 - `systemd` — Journal access
 - `chrono` + `humantime` — `since`/`until` time parsing
-- ` pager` — `less -S -R` via `$PAGER` (no extra crate, `std::process`)
+- `pager` — `less -S -R` via `$PAGER` (no extra crate, `std::process`)
 
 ## License
 

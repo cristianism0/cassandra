@@ -116,7 +116,9 @@ impl JournalParser for JournalLog {
             let iter = self.try_iter(journal, None, since_usec, until_usec)?;
             let mut entries: Vec<LogEntry> = iter.collect::<Result<Vec<_>, _>>()?;
             if let Some(n) = lines {
-                let n_usize = n as usize;
+                // `lines` is bounded by the entries actually read; clamp rather
+                // than truncate an unrealistic value on 32-bit targets.
+                let n_usize = usize::try_from(n).unwrap_or(usize::MAX);
                 if entries.len() > n_usize {
                     let skip = entries.len() - n_usize;
                     entries = entries.into_iter().skip(skip).collect();

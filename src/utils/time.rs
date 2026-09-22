@@ -20,20 +20,33 @@ fn month_str_to_num(m: &str) -> Option<u32> {
 
 /// Parse RFC3164 timestamp like "Oct 11 22:14:15" or "Oct  5 08:00:01" into `DateTime<Utc>` with year inference.
 /// Uses `now` as reference for year inference; if the resulting datetime is in the future, subtract one year.
+///
+/// # Errors
+/// Returns a `String` describing the error when `timestamp` is not a valid
+/// RFC 3164 timestamp (wrong number of parts, unknown month, or invalid day/time).
 pub fn rfc3164_to_datetime(timestamp: &str, now: DateTime<Utc>) -> Result<DateTime<Utc>, String> {
     let parts: Vec<&str> = timestamp.split_whitespace().collect();
     if parts.len() != 3 {
         return Err(format!("invalid RFC3164 timestamp '{timestamp}'"));
     }
-    let month = month_str_to_num(parts[0]).ok_or_else(|| format!("invalid month '{}'", parts[0]))?;
-    let day: u32 = parts[1].parse().map_err(|_| format!("invalid day '{}'", parts[1]))?;
+    let month =
+        month_str_to_num(parts[0]).ok_or_else(|| format!("invalid month '{}'", parts[0]))?;
+    let day: u32 = parts[1]
+        .parse()
+        .map_err(|_| format!("invalid day '{}'", parts[1]))?;
     let time_parts: Vec<&str> = parts[2].split(':').collect();
     if time_parts.len() != 3 {
         return Err(format!("invalid time '{}'", parts[2]));
     }
-    let hour: u32 = time_parts[0].parse().map_err(|_| format!("invalid hour '{}'", time_parts[0]))?;
-    let minute: u32 = time_parts[1].parse().map_err(|_| format!("invalid minute '{}'", time_parts[1]))?;
-    let second: u32 = time_parts[2].parse().map_err(|_| format!("invalid second '{}'", time_parts[2]))?;
+    let hour: u32 = time_parts[0]
+        .parse()
+        .map_err(|_| format!("invalid hour '{}'", time_parts[0]))?;
+    let minute: u32 = time_parts[1]
+        .parse()
+        .map_err(|_| format!("invalid minute '{}'", time_parts[1]))?;
+    let second: u32 = time_parts[2]
+        .parse()
+        .map_err(|_| format!("invalid second '{}'", time_parts[2]))?;
 
     let year = now.format("%Y").to_string().parse::<i32>().unwrap_or(1970);
     let naive = NaiveDate::from_ymd_opt(year, month, day)
@@ -41,12 +54,24 @@ pub fn rfc3164_to_datetime(timestamp: &str, now: DateTime<Utc>) -> Result<DateTi
         .ok_or_else(|| format!("invalid date '{timestamp}'"))?;
     let mut dt = Utc.from_utc_datetime(&naive);
     if dt > now
-        && let Some(prev) = NaiveDate::from_ymd_opt(year - 1, month, day).and_then(|d| d.and_hms_opt(hour, minute, second)) {
-            dt = Utc.from_utc_datetime(&prev);
-        }
+        && let Some(prev) = NaiveDate::from_ymd_opt(year - 1, month, day)
+            .and_then(|d| d.and_hms_opt(hour, minute, second))
+    {
+        dt = Utc.from_utc_datetime(&prev);
+    }
     Ok(dt)
 }
 
+/// # Errors
+/// This funcion may fail to convert human natural language to an comparable string to RFC 3164 format.
+/// There is several reasons to it:
+/// - Bad args: no usable strings, no natural convention or no available parsing
+/// - Dump to humantime: this will happens after the args tratement using chrono utc.
+///   and can fail due to bad comparison between humantime and the converted args
+///
+/// # Panics
+/// The panics will be caused due to bad comparison and convertion from the natural language to the
+/// UTC format.
 pub fn parse_human_time(s: &str) -> Result<DateTime<Utc>, String> {
     let trimmed = s.trim();
     if trimmed.is_empty() {
@@ -60,13 +85,13 @@ pub fn parse_human_time(s: &str) -> Result<DateTime<Utc>, String> {
     if lower == "today" {
         let now = Utc::now();
         let date = now.date_naive();
-        let naive = date.and_hms_opt(0, 0, 0).unwrap();
+        let naive = date.and_hms_opt(0, 0, 0).expect("Bad opts");
         return Ok(Utc.from_utc_datetime(&naive));
     }
     if lower == "yesterday" {
         let now = Utc::now();
         let date = now.date_naive() - chrono::Duration::days(1);
-        let naive = date.and_hms_opt(0, 0, 0).unwrap();
+        let naive = date.and_hms_opt(0, 0, 0).expect("Bad opts");
         return Ok(Utc.from_utc_datetime(&naive));
     }
 
@@ -106,10 +131,11 @@ pub fn parse_human_time(s: &str) -> Result<DateTime<Utc>, String> {
     }
     let no_space: String = trimmed.chars().filter(|c| !c.is_whitespace()).collect();
     if let Ok(dur) = humantime::parse_duration(&no_space)
-        && trimmed.chars().any(|c| c.is_ascii_alphabetic()) {
-            let chrono_dur = chrono::Duration::from_std(dur).map_err(|e| e.to_string())?;
-            return Ok(Utc::now() - chrono_dur);
-        }
+        && trimmed.chars().any(|c| c.is_ascii_alphabetic())
+    {
+        let chrono_dur = chrono::Duration::from_std(dur).map_err(|e| e.to_string())?;
+        return Ok(Utc::now() - chrono_dur);
+    }
 
     if let Ok(dt) = DateTime::parse_from_rfc3339(trimmed) {
         return Ok(dt.with_timezone(&Utc));
@@ -129,13 +155,15 @@ pub fn parse_human_time(s: &str) -> Result<DateTime<Utc>, String> {
         return Ok(Utc.from_utc_datetime(&naive));
     }
 
-    Err(format!("invalid time '{s}' — try '2024-01-01', '2024-01-01T10:00:00', '15 days ago', '2h ago', 'now-2h', 'today', 'yesterday'"))
+    Err(format!(
+        "invalid time '{s}' — try '2024-01-01', '2024-01-01T10:00:00', '15 days ago', '2h ago', 'now-2h', 'today', 'yesterday'"
+    ))
 }
 
 #[must_use]
 pub fn datetime_to_micros(dt: DateTime<Utc>) -> u64 {
     let dur = dt.timestamp_micros();
-    if dur < 0 { 0 } else { dur as u64 }
+    if dur < 0 { 0 } else { dur.cast_unsigned() }
 }
 
 #[cfg(test)]
@@ -161,7 +189,7 @@ mod tests {
         let dt = parse_human_time("2h ago").expect("parse");
         let after = Utc::now();
         let diff = before.signed_duration_since(dt).num_seconds();
-        assert!(diff >= 7100 && diff <= 7300, "diff {diff}");
+        assert!((7100..=7300).contains(&diff), "diff {diff}");
         let _ = after;
     }
 
@@ -169,7 +197,7 @@ mod tests {
     fn parse_now_minus() {
         let dt = parse_human_time("now-2h").expect("parse");
         let diff = Utc::now().signed_duration_since(dt).num_seconds();
-        assert!(diff >= 7100 && diff <= 7300);
+        assert!((7100..=7300).contains(&diff));
     }
 
     #[test]

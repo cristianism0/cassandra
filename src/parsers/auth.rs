@@ -252,7 +252,7 @@ mod tests {
             "Oct 11 22:14:15 h sshd[1]: one\nOct 11 22:14:16 h sshd[1]: two\n",
         );
         let iter = AuthLog.try_iter(&p).expect("iter ok");
-        let count = iter.filter(|r| r.is_ok()).count();
+        let count = iter.flatten().count();
         let _ = std::fs::remove_file(&p);
         assert_eq!(count, 2);
     }

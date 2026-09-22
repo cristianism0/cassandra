@@ -27,13 +27,15 @@ impl LogParser for WtmpLog {
         let file_len = meta.len();
         let record_size: u64 = 384;
 
-        
-
         let total_records = file_len / record_size;
         if total_records == 0 {
             return Ok(Box::new(std::iter::empty()));
         }
 
+        // Reading the whole file into memory: `file_len` is the file size in bytes.
+        // usize is 64-bit here, and a >4 GiB wtmp file on a 32-bit target is
+        // unrealistic, so the truncation lint is allowed for this cast.
+        #[allow(clippy::cast_possible_truncation)]
         let mut buf = vec![0u8; file_len as usize];
         f.seek(SeekFrom::Start(0))
             .map_err(|e| ParseError::IoError(format!("wtmp seek error: {e}")))?;
@@ -42,8 +44,9 @@ impl LogParser for WtmpLog {
 
         // Own the buffer and iterate chunk by chunk, yielding owned LogEntry
         let iter = (0..total_records).map(move |idx| {
-            let start = (idx * record_size) as usize;
-            let end = start + record_size as usize;
+            let start = usize::try_from(idx * record_size).expect("Bad convertion to usize.");
+            // `record_size` is the fixed wtmp record size (384), which always fits usize.
+            let end = start + usize::try_from(record_size).expect("wtmp record size fits usize");
             let chunk = &buf[start..end];
             Ok(LogEntry::Wtmp(parse_record(chunk)))
         });
@@ -63,13 +66,12 @@ impl LogParser for WtmpLog {
             return Ok(Vec::new());
         }
 
-        let all: Vec<LogEntry> = self
-            .try_iter(path)?
-            .collect::<Result<Vec<_>, _>>()?;
+        let all: Vec<LogEntry> = self.try_iter(path)?.collect::<Result<Vec<_>, _>>()?;
 
         let total = all.len() as u64;
         let lines_to_keep = match lines {
-            Some(n) => (n.min(total)) as usize,
+            // `n` is clamped to `all.len()` first, so this conversion can never fail.
+            Some(n) => usize::try_from(n.min(total)).expect("clamped to all.len()"),
             None => all.len(),
         };
 
@@ -116,10 +118,7 @@ mod tests {
     fn write_tmp_bytes(name: &str, contents: &[u8]) -> std::path::PathBuf {
         let id = CTR.fetch_add(1, Ordering::SeqCst);
         let mut p = std::env::temp_dir();
-        p.push(format!(
-            "cassandra-wtmp-{}-{id}-{name}",
-            std::process::id()
-        ));
+        p.push(format!("cassandra-wtmp-{}-{id}-{name}", std::process::id()));
         std::fs::write(&p, contents).expect("write tmp fixture");
         p
     }

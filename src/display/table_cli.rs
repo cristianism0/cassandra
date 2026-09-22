@@ -1,5 +1,6 @@
 use comfy_table::ContentArrangement;
 use comfy_table::presets::{UTF8_FULL, UTF8_FULL_CONDENSED};
+use std::fmt::Write as _;
 
 use crate::models::{
     FromLogEntry, LogEntry,
@@ -103,7 +104,7 @@ fn build_table_with<T: TableDisplay>(
         let constraints: Vec<_> = (0..table.column_count())
             .map(|_| {
                 comfy_table::ColumnConstraint::UpperBoundary(comfy_table::Width::Fixed(
-                    width as u16,
+                    u16::try_from(width).unwrap_or(u16::MAX),
                 ))
             })
             .collect();
@@ -112,7 +113,7 @@ fn build_table_with<T: TableDisplay>(
         let constraints: Vec<_> = (0..table.column_count())
             .map(|_| {
                 comfy_table::ColumnConstraint::UpperBoundary(comfy_table::Width::Fixed(
-                    def as u16,
+                    u16::try_from(def).unwrap_or(u16::MAX),
                 ))
             })
             .collect();
@@ -131,7 +132,7 @@ fn render_key_value<T: TableDisplay>(rows: Vec<&T>, hide_columns: Option<&[usize
             .collect()
     });
     for (i, row) in rows.into_iter().enumerate() {
-        output.push_str(&format!("[ Entry {} ]\n", i + 1));
+        let _ = writeln!(output, "[ Entry {} ]", i + 1);
         output.push_str(&build_table_with(&[row], keep.as_deref(), None));
         output.push('\n');
     }
@@ -181,8 +182,7 @@ pub fn build_table<T: TableDisplay + FromLogEntry>(
             let keep = if keep.is_empty() { None } else { Some(keep) };
             (keep, None)
         }
-        TableMode::KeyValue => unreachable!(),
-        TableMode::Raw => unreachable!(),
+        TableMode::KeyValue | TableMode::Raw => unreachable!(),
     };
     Some(build_table_with(
         &rows,
@@ -235,8 +235,7 @@ pub fn build_journal_table<T: TableDisplay + FromLogEntry>(
             });
             (keep, None)
         }
-        TableMode::KeyValue => unreachable!(),
-        TableMode::Raw => unreachable!(),
+        TableMode::KeyValue | TableMode::Raw => unreachable!(),
     };
     Some(build_table_with(
         &rows,
@@ -276,6 +275,13 @@ mod tests {
                 priority: Some("34".to_string()),
                 host: "myhost".to_string(),
                 process: "proc".to_string(),
+                timestamp: "Oct 11 22:14:15".to_string(),
+                message: "hello world, this is a long message".to_string(),
+            }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                host: "other".to_string(),
+                process: "cron".to_string(),
                 timestamp: "Oct 11 22:14:16".to_string(),
                 message: "second".to_string(),
             }),
@@ -377,7 +383,9 @@ mod tests {
         assert_eq!(keep, vec![4]);
         let rows: Vec<&SysRecord> = group(&entries);
         assert_eq!(
-            rows[0].fields()[keep[0]], "second".to_string())
+            rows[0].fields()[keep[0]],
+            "hello world, this is a long message".to_string()
+        );
     }
 
     #[test]

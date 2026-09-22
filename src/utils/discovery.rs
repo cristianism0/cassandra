@@ -6,6 +6,11 @@ use std::path::Path;
 use crate::models::{ContentFormat, FiData, Finfo, FsKind, LogSource, PathStatus, SourceCandidate};
 
 impl Finfo {
+    /// Gather all useful information about the file and its path.
+    ///
+    /// # Errors
+    /// Returns [`PathStatus::Indeterminate`] when the file metadata cannot be read,
+    /// or [`PathStatus::NotFound`] when even the metadata lookup fails.
     #[must_use = "This function returns all usefull information about the file and its path; use let f = ..."]
     pub fn gather_info(sc: &SourceCandidate) -> Result<Finfo, PathStatus> {
         let path = Path::new(sc.path);

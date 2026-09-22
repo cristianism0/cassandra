@@ -5,7 +5,7 @@ set -e
 TAG="$1"
 
 if [ -z "$TAG" ]; then
-  echo "Erro: Forneça a tag/versão como argumento. Ex: $0 v1.0.0"
+  echo "Error: Tag is needed. Ex: $0 v1.0.0"
   exit 1
 fi
 
