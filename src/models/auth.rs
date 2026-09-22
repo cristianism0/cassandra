@@ -2,7 +2,6 @@ use crate::models::{FromLogEntry, LogEntry};
 
 #[derive(Debug)]
 pub struct AuthRecord {
-    //auth or secure
     pub priority: Option<String>, //filtered
     pub timestamp: String,
     pub host: String,

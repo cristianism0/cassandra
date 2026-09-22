@@ -232,7 +232,6 @@ pub fn run_cli() {
 
     let is_wtmp = matches!(args.log, LogKey::Wtmp { .. });
     if is_wtmp && (since_dt.is_some() || until_dt.is_some()) {
-        // ignore for wtmp as requested
     }
 
     let is_raw = matches!(tmode, TableMode::Raw);
@@ -330,7 +329,6 @@ pub fn run_cli() {
             if list_columns {
                 match scope {
                     JournalScope::System => {
-                        // System scope hides kernel columns (hostname etc) — list only visible ones
                         let headers = JournalRecord::headers();
                         for h in headers {
                             if !JOURNAL_KERNEL_COL
@@ -541,8 +539,6 @@ fn apply_time_filter_with_now(
                 crate::models::LogEntry::Sys(r) => rfc3164_to_datetime(&r.timestamp, now).ok(),
                 crate::models::LogEntry::Auth(r) => rfc3164_to_datetime(&r.timestamp, now).ok(),
                 crate::models::LogEntry::Journal(j) => {
-                    // Prefer source_realtime_timestamp, fallback to realtime timestamp from journal
-                    // source_realtime_timestamp is micros as string
                     if let Some(ts) = &j.source_realtime_timestamp {
                         if let Ok(micros) = ts.parse::<i64>() {
                             Some(Utc.timestamp_micros(micros).single().expect("valid timestamp"))
@@ -550,7 +546,6 @@ fn apply_time_filter_with_now(
                             None
                         }
                     } else if let Some(ts) = &j.source_boottime_timestamp {
-                        // fallback: try parse, though boottime is not wall clock
                         if let Ok(micros) = ts.parse::<i64>() {
                             Some(Utc.timestamp_micros(micros).single().expect("valid timestamp"))
                         } else {
@@ -575,9 +570,6 @@ fn apply_time_filter_with_now(
                 }
                 true
             } else {
-                // If timestamp missing or unparsable, keep only if no time filter? Actually filter out
-                // For journal, if no timestamp, we cannot filter, so keep? But safer to keep if no filter?
-                // Here we already have since/until, so if we cannot parse, exclude
                 false
             }
         })
@@ -602,14 +594,11 @@ fn apply_lines_limit(
             }
         }
         if reverse {
-            // Newest first: take first n after reverse? But entries are chronological
-            // We want last n in reverse order
             let mut filtered = entries;
             filtered.reverse();
             filtered.truncate(n_usize);
             filtered
         } else {
-            // Last n in chronological order
             entries.into_iter().skip(len - n_usize).collect()
         }
     } else if reverse {
@@ -657,7 +646,6 @@ fn print_table<T>(
     };
 
     let has_time_filter = since.is_some() || until.is_some();
-    // When time filter is active, fetch all in chronological order and handle lines/reverse after filtering
     let parser_reverse = if has_time_filter { false } else { reverse };
     let mut ret = match parser_selector(&vf, lines_for_parser, parser_reverse) {
         Ok(e) => e,
@@ -698,9 +686,6 @@ fn print_table<T>(
         ret = apply_lines_limit(ret, lines_outer, reverse);
     }
 
-    // If we already handled lines for time-filtered case, skip; else lines was handled by parser, but we still need to handle search/rows after?
-    // For non-time case, lines already handled by parser, but search/rows may have reduced entries, we should not re-apply lines
-    // However if search/rows reduced, lines semantics of "last N" after filtering may be unexpected, but we keep parser's lines as is
 
     let table = match build_table::<T>(&ret, mode) {
         Some(e) => e,
@@ -751,7 +736,6 @@ fn print_raw_file<T>(
 
     // Use streaming `try_iter()` instead of `parser()`'s Vec — this is the `raw` path
     // that avoids `comfy-table` wrapping and table buffering. The iterator owns the
-    // `BufReader` and yields per line; `lines`/`reverse` are applied via a bounded
     // `VecDeque` after filtering (keeps last N without reading whole file twice).
     use crate::parsers::selector::LogParser;
     use crate::parsers::{auth::AuthLog, sys::SysLog, wtmp::WtmpLog};
@@ -799,12 +783,10 @@ fn print_raw_file<T>(
     let has_time = since.is_some() || until.is_some();
     let now = Utc::now();
 
-    // Helper closures for per-entry filtering (same logic as Vec helpers but streaming)
     let matches_time = |entry: &crate::models::LogEntry| -> bool {
         if !has_time {
             return true;
         }
-        // wtmp has no timestamp — ignore time filter as requested
         if matches!(entry, crate::models::LogEntry::Wtmp(_)) {
             return true;
         }
@@ -883,15 +865,10 @@ fn print_raw_file<T>(
         }
     };
 
-    // For `raw` we want to stream to stdout with `writeln!` and periodic `flush`
-    // to avoid blocking the terminal. Cases:
     // - `lines` Some: keep last N in a bounded deque (needs buffering, but only N)
-    // - `reverse` without lines: collect all, reverse, then stream
-    // - otherwise: stream directly
     let stdout = io::stdout();
     let mut handle = stdout.lock();
 
-    // Print header first (tab-separated, no wrapping)
     let headers = T::headers();
     if writeln!(handle, "{}", headers.join("\t")).is_err() {
         exit(1);
@@ -966,7 +943,6 @@ fn print_raw_file<T>(
         }
         let _ = handle.flush();
     } else {
-        // Direct streaming — no accumulation, flush every 100 lines
         let mut count = 0usize;
         for res in boxed_iter {
             let entry = match res {
@@ -1027,7 +1003,6 @@ fn print_raw_journal(
         }
     };
 
-    // For `since` we stream all in range and apply `lines` via deque;
     // for no `since` we use efficient `previous_skip(lines.unwrap_or(50))` inside `try_iter`.
     let lines_for_iter = if since_usec.is_some() { None } else { lines };
     let iter = match jlog.try_iter(&mut journal, lines_for_iter, since_usec, until_usec) {
@@ -1047,7 +1022,6 @@ fn print_raw_journal(
         exit(1);
     }
 
-    // Per-entry filters (gravity/rows/search). Time already handled by native seek.
     let mut filtered_deque: Option<VecDeque<crate::models::LogEntry>> =
         if since_usec.is_some() && lines.is_some() {
             Some(VecDeque::with_capacity(lines.unwrap() as usize))
@@ -1056,7 +1030,6 @@ fn print_raw_journal(
         };
     let mut filtered_vec: Vec<crate::models::LogEntry> = Vec::new();
 
-    // If we need to keep last N for `since` + lines, use deque; if reverse without lines, collect
     if filtered_deque.is_some() {
         let n_usize = lines.unwrap() as usize;
         for res in iter {
@@ -1130,7 +1103,6 @@ fn print_raw_journal(
     }
 
     if reverse && filtered_deque.is_none() {
-        // Need to collect all for reverse when not using deque
         for res in iter {
             let entry = match res {
                 Ok(e) => e,
@@ -1187,7 +1159,6 @@ fn print_raw_journal(
         return;
     }
 
-    // Direct streaming for non-since, no-lines, no-reverse, or for non-since with lines
     // already handled via `previous_skip` in `try_iter`, so we can stream directly.
     let mut count = 0usize;
     for res in iter {
@@ -1514,11 +1485,7 @@ mod tests {
         ];
         let since = Utc.with_ymd_and_hms(2024, 10, 12, 0, 0, 0).unwrap();
         let until = Utc.with_ymd_and_hms(2024, 10, 12, 23, 59, 59).unwrap();
-        // Use a fixed now for deterministic test: Oct 14 2024
-        // But apply_time_filter uses Utc::now() internally; for this test we check logic via direct comparison
-        // Instead test rfc3164 parsing and direct filter
         let now = Utc.with_ymd_and_hms(2024, 10, 14, 0, 0, 0).unwrap();
-        // Simulate filter manually
         let filtered: Vec<_> = entries.into_iter().filter(|e| {
             if let crate::models::LogEntry::Sys(r) = e {
                 if let Ok(dt) = rfc3164_to_datetime(&r.timestamp, now) {
@@ -1584,7 +1551,6 @@ mod tests {
 
     #[test]
     fn apply_time_filter_journal() {
-        // Journal timestamp is micros string; use a known micros for 2024-10-12
         let micros = Utc.with_ymd_and_hms(2024, 10, 12, 10, 0, 0).unwrap().timestamp_micros();
         let entries = vec![
             LogEntry::Journal(Box::new(JournalRecord { message: "m1".to_string(), priority: None, code_file: None, code_func: None, code_line: None, syslog_facility: None, syslog_identifier: None, tid: None, audit_loginuid: None, audit_session: None, boot_id: None, gid: None, hostname: None, machine_id: None, pid: None, runtime_scope: None, selinux_context: None, source_monotonic_timestamp: None, source_boottime_timestamp: None, source_realtime_timestamp: Some((micros - 1_000_000).to_string()), systemd_cgroup: None, systemd_owner_uid: None, systemd_slice: None, systemd_unit: None, systemd_user_slice: None, transport: None, uid: None })),

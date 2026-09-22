@@ -58,7 +58,6 @@ impl LogParser for SysLog {
         }
 
         // `parser()` keeps the historical behavior: `lines` is last N via bounded deque,
-        // `reverse` flips order, and malformed lines panic (documented by `should_panic` tests).
         // It is now a thin wrapper over `try_iter()` for consistency and future `iter` rename.
         let limit = lines.map(|n| {
             usize::try_from(n).map_err(|e| {
@@ -81,7 +80,6 @@ impl LogParser for SysLog {
         };
 
         for res in self.try_iter(path)? {
-            // Preserve panic-on-malformed for `parser()` to keep existing tests passing;
             // `try_iter()` itself yields `Err` for callers that want streaming error handling.
             let entry = res.expect("Cannot get the information due to bad regex match.");
 

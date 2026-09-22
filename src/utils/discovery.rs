@@ -6,8 +6,6 @@ use std::path::Path;
 use crate::models::{ContentFormat, FiData, Finfo, FsKind, LogSource, PathStatus, SourceCandidate};
 
 impl Finfo {
-    /// # Errors
-    /// The function will return Err in problems with traversing and unavailable paths
     #[must_use = "This function returns all usefull information about the file and its path; use let f = ..."]
     pub fn gather_info(sc: &SourceCandidate) -> Result<Finfo, PathStatus> {
         let path = Path::new(sc.path);

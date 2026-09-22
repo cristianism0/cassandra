@@ -53,17 +53,13 @@ impl JournalParser for JournalLog {
             });
             Ok(Box::new(iter))
         } else {
-            // No `since`: use tail + previous_skip for efficient last-N
             journal.seek_tail().map_err(|e| {
                 JournalError::IoError(format!(
                     "Cannot read the journal during the parser due to error: {e:#?}"
                 ))
             })?;
 
-            // If `until` is set, we still want last-N before `until`, not just last-N overall.
-            // We use `previous_skip(limit)` from tail, then filter by `until` during iteration.
             let limit = lines.unwrap_or(50);
-            // Only skip if limit > 0; journal.previous_skip(0) is a no-op but keep explicit
             if limit > 0 {
                 journal.previous_skip(limit).map_err(|e| {
                     JournalError::IoError(format!(

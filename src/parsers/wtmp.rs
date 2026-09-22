@@ -28,7 +28,6 @@ impl LogParser for WtmpLog {
         let record_size: u64 = 384;
 
         if file_len % record_size != 0 {
-            // Warn but still iterate over complete records
         }
 
         let total_records = file_len / record_size;

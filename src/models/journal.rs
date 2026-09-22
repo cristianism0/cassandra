@@ -103,7 +103,6 @@ impl FromLogEntry for JournalRecord {
     }
 }
 
-// --------- Errors --------
 #[derive(Debug)]
 pub enum JournalError {
     IoError(String),

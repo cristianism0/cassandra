@@ -78,15 +78,11 @@ fn build_table_with<T: TableDisplay>(
         .enforce_styling()
         .set_header(headers);
 
-    // `search`/`rows` filtering happens before `build_table_with` on `T::fields()`
     // (see `src/cli.rs:645`), so `truncate_content` here only affects display —
-    // the literal text is removed from the table but not from filtering. To keep
     // grep-friendly output use `--raw` (tab-separated, no wrapping/truncation).
     let effective_width = max_col_width;
     // For `standard`/`summary` without explicit `max_col_width`, truncate long
-    // fields to 60 chars by default to avoid a 27-column journal table spilling
     // over the terminal. This is smaller than `Disabled` would otherwise render
-    // (full width) and keeps the table readable. Search still matches the
     // original untruncated fields.
     let default_truncate: Option<usize> = if effective_width.is_none() {
         Some(60)
@@ -102,7 +98,6 @@ fn build_table_with<T: TableDisplay>(
                 if let Some(w) = effective_width {
                     truncate_content(&fields[i], w)
                 } else if let Some(def) = default_truncate {
-                    // Only truncate if field exceeds default; keep short fields intact
                     if fields[i].chars().count() > def {
                         truncate_content(&fields[i], def)
                     } else {
@@ -170,7 +165,6 @@ pub fn build_raw<T: TableDisplay + FromLogEntry>(
         out.push_str(&r.fields().join("\t"));
         out.push('\n');
     }
-    // No wrapping, no Dynamic arrangement — suitable for `grep` and `wc -l`
     Some(out.trim_end().to_string())
 }
 
@@ -213,8 +207,6 @@ pub fn build_journal_table<T: TableDisplay + FromLogEntry>(
     mode: &TableMode,
 ) -> Option<String> {
     if let TableMode::Raw = mode {
-        // For journal raw, hide the same kernel columns as system scope? No, raw should show all
-        // but keep consistent with table's hide for system scope: hide only if system.
         // To keep raw grep-friendly and complete, show all headers.
         return build_raw::<T>(entries);
     }
@@ -232,8 +224,6 @@ pub fn build_journal_table<T: TableDisplay + FromLogEntry>(
 
     let (keep_columns, max_col_width) = match mode {
         TableMode::Summary { columns } => {
-            // Summary explicitly requests columns — show exactly what was requested,
-            // even if some are kernel cols hidden for system standard view.
             let keep = column_indices(&headers, columns);
             let keep_opt = if keep.is_empty() { None } else { Some(keep) };
             (keep_opt, None)
@@ -370,8 +360,6 @@ mod tests {
     #[test]
     fn build_table_standard_has_headers_and_rows() {
         let entries = sys_entries();
-        // Smoke: table renders. No substring assertions on the output here:
-        // rendered width follows the terminal, so long lines may wrap.
         build_table::<SysRecord>(&entries, &TableMode::Standard).expect("table");
         assert!(SysRecord::headers().contains(&"timestamp"));
         let rows: Vec<&SysRecord> = group(&entries);
@@ -391,8 +379,6 @@ mod tests {
     #[test]
     fn build_table_compact_renders() {
         let entries = sys_entries();
-        // Smoke only: the truncation itself is covered by the
-        // truncate_content tests; rendered width is terminal-dependent.
         let out = build_table::<SysRecord>(&entries, &TableMode::Compact { max_col_width: 8 })
             .expect("table");
         assert!(!out.is_empty());
@@ -402,8 +388,6 @@ mod tests {
     fn build_table_summary_keeps_only_requested() {
         let entries = sys_entries();
         let columns = vec!["message".to_string()];
-        // Selection logic (width-independent): "message" is index 4 and the
-        // row data maps back to the parsed message.
         let keep = column_indices(&SysRecord::headers(), &columns);
         assert_eq!(keep, vec![4]);
         let rows: Vec<&SysRecord> = group(&entries);
@@ -411,14 +395,11 @@ mod tests {
             rows[0].fields()[keep[0]],
             "hello world, this is a long message"
         );
-        // Smoke: summary mode renders.
         build_table::<SysRecord>(&entries, &TableMode::Summary { columns }).expect("table");
     }
 
     #[test]
     fn summary_unknown_column_selects_nothing() {
-        // Documents current behavior: unknown columns match nothing, and
-        // build_table falls back to the full table in that case.
         let keep = column_indices(
             &SysRecord::headers(),
             &["no-such-column".to_string()],
@@ -434,10 +415,6 @@ mod tests {
         assert!(out.contains("[ Entry 2 ]"));
     }
 
-    // NOTE: the 27-column journal table wraps to the detected terminal width
-    // (ContentArrangement::Dynamic), so these tests must not assert on
-    // substrings of the rendered output. Assert on the column-selection
-    // logic instead, plus a render smoke check.
     #[test]
     fn journal_hide_list_covers_hostname() {
         let headers = JournalRecord::headers();
@@ -472,8 +449,6 @@ mod tests {
             &TableMode::Standard,
         )
         .expect("table");
-        // Absence is width-independent: wrapping can split words, never
-        // create "hostname" out of nothing.
         assert!(!out.contains("hostname"));
     }
 

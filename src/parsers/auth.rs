@@ -9,12 +9,6 @@ use std::{collections::VecDeque, fs::File, path::Path};
 
 use crate::parsers::AUTH_RE;
 
-// Structure for Auth and Sys follow RFC 3164:
-// PRI HEADER MSG
-// but, for a better readability most linus system ommit the priority
-// if you have priority available (after change the rsyslog.conf) the regex will capture and
-// display.
-//
 pub struct AuthLog;
 impl LogParser for AuthLog {
     fn try_iter(
