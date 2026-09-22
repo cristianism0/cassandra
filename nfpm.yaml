@@ -4,7 +4,7 @@ platform: linux
 version: 0.1.0
 section: utils
 priority: optional
-maintainer: cristian <cristianism0@github.com>
+maintainer: cristian <csg2099@gmail.com>
 description: |
   Cassandra — fast Rust CLI for Linux logs (journald, auth, syslog, wtmp).
   Cross-distro, RFC 3164, streaming raw, pager less -S -R.
@@ -12,7 +12,7 @@ vendor: cristianism0
 homepage: https://github.com/cristianism0/cassandra
 license: GPL-3.0
 contents:
-  - src: /home/cristian/Sandbox/test_cassandra/cassandra
+  - src: ./target/release/cassandra
     dst: /usr/bin/cassandra
     file_info:
       mode: 0755
@@ -51,5 +51,5 @@ overrides:
       postremove: ./nfpm/scripts/postremove.sh
 rpm:
   summary: Fast Rust CLI for Linux logs
-  packager: cristian <cristianism0@github.com>
+  packager: cristian <csg2099@gmail.com>
   group: System Environment/Base
