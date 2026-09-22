@@ -11,3 +11,10 @@ comfy-table = "8.0.0"
 humantime = "2.1"
 regex = "1.13.1"
 systemd = "0.10.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = 'abort'
+strip = true
