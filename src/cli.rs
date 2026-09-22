@@ -7,6 +7,7 @@ use std::process::exit;
 
 use crate::display::{
     TableDisplay, TableMode,
+    pager::pager_or_print,
     table_cli::{build_journal_table, build_table},
     theme::rose_pine_moon,
 };
@@ -63,28 +64,32 @@ struct ArgsC {
     standard: bool,
     #[arg(
         long,
+        short = 'R',
         group = "display",
         global = true,
-        help = "Raw output: tab-separated, no wrapping (streaming, grep-friendly)"
+        help = "Raw output: tab-separated, no wrapping (streaming, grep-friendly; no pager)"
     )]
     raw: bool,
+    #[arg(long, global = true, help = "Disable pager (print directly, no less)")]
+    no_pager: bool,
 
     #[arg(
         long,
+        short = 'F',
         value_delimiter = ',',
         global = true,
-        help = "Filter rows by column=value — e.g. --rows host=myhost,process=sshd"
+        help = "Filter rows by column=value — e.g. --rows host=myhost,process=sshd (-F)"
     )]
     rows: Option<Vec<String>>,
     #[arg(short, long, global = true, help = "Limit to last N lines")]
     lines: Option<u64>,
     #[arg(short, long, global = true, help = "Reverse output order — newest first")]
     reverse: bool,
-    #[arg(long, global = true, help = "Regex search across all fields — e.g. --search 'error|failed'")]
+    #[arg(long, short = 'e', global = true, help = "Regex search across all fields — e.g. --search 'error|failed' (-e)")]
     search: Option<String>,
-    #[arg(long, global = true, help = "Show entries since time — e.g. --since '2024-01-01', '15 days ago', '2h ago', 'now-2h', 'today', 'yesterday' (UTC)")]
+    #[arg(long, short = 'S', global = true, help = "Show entries since time — e.g. --since '2024-01-01', '15 days ago', '2h ago', 'now-2h', 'today', 'yesterday' (UTC) (-S)")]
     since: Option<String>,
-    #[arg(long, global = true, help = "Show entries until time — e.g. --until '2024-01-01' (UTC)")]
+    #[arg(long, short = 'U', global = true, help = "Show entries until time — e.g. --until '2024-01-01' (UTC) (-U)")]
     until: Option<String>,
     #[command(subcommand)]
     log: LogKey,
@@ -111,7 +116,7 @@ enum LogKey {
     Journal {
         #[arg(long, default_value = "user", help = "Journal scope — system or user")]
         scope: JournalScope,
-        #[arg(long, value_enum, help = "Filter by gravity — critical, medium, low (maps to priority)")]
+        #[arg(long, short = 'g', value_enum, help = "Filter by gravity — critical, medium, low (maps to priority) (-g)")]
         gravity: Option<GravityArgs>,
         #[arg(long, help = "List available columns for this source and exit")]
         list_columns: bool,
@@ -162,6 +167,7 @@ pub fn run_cli() {
 
     let tmode = args.table_mode();
     let revs = args.reverse;
+    let no_pager = args.no_pager;
 
     let search_re = match &args.search {
         Some(pat) => match Regex::new(pat) {
@@ -246,6 +252,7 @@ pub fn run_cli() {
                     row_filters.as_deref(),
                     since_dt.as_ref(),
                     until_dt.as_ref(),
+                    no_pager,
                 );
             }
         }
@@ -275,6 +282,7 @@ pub fn run_cli() {
                     row_filters.as_deref(),
                     since_dt.as_ref(),
                     until_dt.as_ref(),
+                    no_pager,
                 );
             }
         }
@@ -303,6 +311,7 @@ pub fn run_cli() {
                     row_filters.as_deref(),
                     None,
                     None,
+                    no_pager,
                 );
             }
         }
@@ -367,13 +376,12 @@ pub fn run_cli() {
                 }
 
                 let table = build_journal_table::<JournalRecord>(&j, &scope, &tmode);
-                println!(
-                    "{}",
-                    table.unwrap_or_else(|| {
-                        eprintln!("Error: Cassandra could not create the table.");
-                        exit(2);
-                    })
-                );
+                let output = table.unwrap_or_else(|| {
+                    eprintln!("Error: Cassandra could not create the table.");
+                    exit(2);
+                });
+                let output = format!("{output}\n");
+                pager_or_print(&output, no_pager);
             }
         }
     }
@@ -597,8 +605,18 @@ fn apply_lines_limit(
     }
 }
 
-fn print_table<T>(mode: &TableMode, source: LogSource, lines_for_parser: Option<u64>, lines_outer: Option<u64>, reverse: bool, search_re: Option<&Regex>, row_filters: Option<&[(String, String)]>, since: Option<&DateTime<Utc>>, until: Option<&DateTime<Utc>>)
-where
+fn print_table<T>(
+    mode: &TableMode,
+    source: LogSource,
+    lines_for_parser: Option<u64>,
+    lines_outer: Option<u64>,
+    reverse: bool,
+    search_re: Option<&Regex>,
+    row_filters: Option<&[(String, String)]>,
+    since: Option<&DateTime<Utc>>,
+    until: Option<&DateTime<Utc>>,
+    no_pager: bool,
+) where
     T: TableDisplay + FromLogEntry,
 {
     if let Some(filters) = row_filters
@@ -673,7 +691,10 @@ where
             exit(2);
         }
     };
-    println!("{}", table);
+    // For table output, use pager (less -S -R) when stdout is a TTY and --no-pager not set.
+    // Raw output (tab-separated) never uses pager — use --raw for pipe/grep.
+    let output = format!("{table}\n");
+    pager_or_print(&output, no_pager);
 }
 
 fn print_raw_file<T>(
@@ -1224,6 +1245,7 @@ mod tests {
             key,
             standard,
             raw: false,
+            no_pager: false,
             rows: None,
             lines: None,
             reverse: false,
