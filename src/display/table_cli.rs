@@ -1,5 +1,5 @@
 use comfy_table::ContentArrangement;
-use comfy_table::presets::{UTF8_FULL, UTF8_FULL_CONDENSED};
+use comfy_table::presets::{UTF8_FULL, UTF8_FULL_CONDENSED}; //TODO: move to ASCII_FULL for max compatibility
 use std::fmt::Write as _;
 
 use crate::models::{
@@ -55,7 +55,10 @@ fn build_table_with<T: TableDisplay>(
             .collect();
         (h, filtered)
     } else {
-        let h: Vec<String> = all_headers.iter().map(std::string::ToString::to_string).collect();
+        let h: Vec<String> = all_headers
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
         let m: Vec<usize> = (0..all_headers.len()).collect();
         (h, m)
     };
@@ -140,9 +143,7 @@ fn render_key_value<T: TableDisplay>(rows: Vec<&T>, hide_columns: Option<&[usize
 }
 
 #[must_use]
-pub fn build_raw<T: TableDisplay + FromLogEntry>(
-    entries: &[LogEntry],
-) -> Option<String> {
+pub fn build_raw<T: TableDisplay + FromLogEntry>(entries: &[LogEntry]) -> Option<String> {
     let rows = group::<T>(entries);
     if rows.is_empty() {
         return None;
@@ -390,10 +391,7 @@ mod tests {
 
     #[test]
     fn summary_unknown_column_selects_nothing() {
-        let keep = column_indices(
-            &SysRecord::headers(),
-            &["no-such-column".to_string()],
-        );
+        let keep = column_indices(&SysRecord::headers(), &["no-such-column".to_string()]);
         assert!(keep.is_empty());
     }
 
@@ -422,12 +420,8 @@ mod tests {
     #[test]
     fn build_journal_user_scope_renders() {
         let entries = journal_entry();
-        build_journal_table::<JournalRecord>(
-            &entries,
-            &JournalScope::User,
-            &TableMode::Standard,
-        )
-        .expect("table");
+        build_journal_table::<JournalRecord>(&entries, &JournalScope::User, &TableMode::Standard)
+            .expect("table");
     }
 
     #[test]
