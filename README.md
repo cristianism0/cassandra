@@ -27,6 +27,9 @@ A fast, Rust-based CLI tool for reading Linux system logs. Supports multiple log
 
 ## Installation
 
+Cassandra is now avaible in direct distribution packages and `tar.gz` compressions in [Releases](https://github.com/cristianism0/cassandra/releases).
+The `.deb` and `.rpm` packages already apply read_dac attibutes on post-install scripts, install and use.
+
 ### From Source
 
 Requires Rust 1.88+ (edition 2024):
