@@ -17,6 +17,7 @@ pub mod palette {
     pub const IRIS: Color = Color::Rgb(RgbColor(196, 167, 231)); // #c4a7e7
 }
 
+#[must_use]
 pub fn rose_pine_moon() -> Styles {
     let header = ClapStyle::new().fg_color(Some(palette::IRIS)).bold();
     let usage = ClapStyle::new().fg_color(Some(palette::PINE)).bold();
@@ -57,6 +58,7 @@ impl Default for Theme {
 }
 
 impl Theme {
+    #[must_use]
     pub fn rose_pine_moon() -> Self {
         Self {
             bg: palette::BASE,

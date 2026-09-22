@@ -27,8 +27,7 @@ impl LogParser for WtmpLog {
         let file_len = meta.len();
         let record_size: u64 = 384;
 
-        if file_len % record_size != 0 {
-        }
+        
 
         let total_records = file_len / record_size;
         if total_records == 0 {

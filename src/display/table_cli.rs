@@ -44,22 +44,19 @@ fn build_table_with<T: TableDisplay>(
     max_col_width: Option<usize>,
 ) -> String {
     let all_headers = T::headers();
-    let (headers, col_map) = match keep_columns {
-        Some(keep) => {
-            let filtered: Vec<usize> = (0..all_headers.len())
-                .filter(|i| keep.contains(i))
-                .collect();
-            let h: Vec<String> = filtered
-                .iter()
-                .map(|&i| all_headers[i].to_string())
-                .collect();
-            (h, filtered)
-        }
-        None => {
-            let h: Vec<String> = all_headers.iter().map(|s| s.to_string()).collect();
-            let m: Vec<usize> = (0..all_headers.len()).collect();
-            (h, m)
-        }
+    let (headers, col_map) = if let Some(keep) = keep_columns {
+        let filtered: Vec<usize> = (0..all_headers.len())
+            .filter(|i| keep.contains(i))
+            .collect();
+        let h: Vec<String> = filtered
+            .iter()
+            .map(|&i| all_headers[i].to_string())
+            .collect();
+        (h, filtered)
+    } else {
+        let h: Vec<String> = all_headers.iter().map(std::string::ToString::to_string).collect();
+        let m: Vec<usize> = (0..all_headers.len()).collect();
+        (h, m)
     };
 
     let style = match max_col_width {
@@ -141,6 +138,7 @@ fn render_key_value<T: TableDisplay>(rows: Vec<&T>, hide_columns: Option<&[usize
     output
 }
 
+#[must_use]
 pub fn build_raw<T: TableDisplay + FromLogEntry>(
     entries: &[LogEntry],
 ) -> Option<String> {
@@ -159,6 +157,7 @@ pub fn build_raw<T: TableDisplay + FromLogEntry>(
     Some(out.trim_end().to_string())
 }
 
+#[must_use]
 pub fn build_table<T: TableDisplay + FromLogEntry>(
     entries: &[LogEntry],
     mode: &TableMode,
@@ -192,6 +191,7 @@ pub fn build_table<T: TableDisplay + FromLogEntry>(
     ))
 }
 
+#[must_use]
 pub fn build_journal_table<T: TableDisplay + FromLogEntry>(
     entries: &[LogEntry],
     scope: &JournalScope,
@@ -245,6 +245,7 @@ pub fn build_journal_table<T: TableDisplay + FromLogEntry>(
     ))
 }
 
+#[must_use]
 pub fn render_all_tables(records: Vec<RecordType<'_>>, mode: &TableMode) -> Vec<String> {
     let mut rendered = Vec::with_capacity(records.len());
     for record in records {

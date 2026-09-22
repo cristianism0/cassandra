@@ -266,7 +266,7 @@ pub fn run_cli() {
     }
 
     let is_wtmp = matches!(args.log, LogKey::Wtmp { .. });
-    if is_wtmp && (since_dt.is_some() || until_dt.is_some()) {}
+    if is_wtmp { since_dt.is_some() || until_dt.is_some(); }
 
     let is_raw = matches!(tmode, TableMode::Raw);
     match args.log {
@@ -662,9 +662,8 @@ fn apply_lines_limit(
                 let mut rev = entries;
                 rev.reverse();
                 return rev;
-            } else {
-                return entries;
             }
+            return entries;
         }
         if reverse {
             let mut filtered = entries;
@@ -712,20 +711,17 @@ fn print_table<T>(
 
     let ps = possible_paths(source);
     let attempted: Vec<String> = ps.iter().map(|p| p.path.to_string()).collect();
-    let vf = match filtered_finfo(ps) {
-        Some(e) => e,
-        None => {
-            eprintln!("Error: No readable log file found for {source:?}.");
-            eprintln!(
-                "Hint: Check that log files exist ({})
-                and that Cassandra has read access — try 'sudo ./cap.sh' or run with sudo.
-                See 'cassandra {} --help' for expected paths.",
-                attempted.join(", "),
-                format!("{source:?}").to_lowercase()
-            );
-            eprintln!("Details: attempted paths: {}", attempted.join(", "));
-            exit(2);
-        }
+    let vf = if let Some(e) = filtered_finfo(ps) { e } else {
+        eprintln!("Error: No readable log file found for {source:?}.");
+        eprintln!(
+            "Hint: Check that log files exist ({})
+            and that Cassandra has read access — try 'sudo ./cap.sh' or run with sudo.
+            See 'cassandra {} --help' for expected paths.",
+            attempted.join(", "),
+            format!("{source:?}").to_lowercase()
+        );
+        eprintln!("Details: attempted paths: {}", attempted.join(", "));
+        exit(2);
     };
 
     let has_time_filter = since.is_some() || until.is_some();
@@ -791,33 +787,30 @@ fn print_table<T>(
         ret = apply_lines_limit(ret, lines_outer, reverse);
     }
 
-    let table = match build_table::<T>(&ret, mode) {
-        Some(e) => e,
-        None => {
-            eprintln!(
-                "Error: No entries to display for {} — table empty after filtering (0 rows).",
-                format!("{source:?}").to_lowercase()
-            );
-            eprintln!(
-                "Hint: Try relaxing filters: remove --search/--rows,
-                widen --since/--until, increase -l, or use --raw for tab-separated output.
-                Check --list-columns for {} and try without filters.",
-                format!("{source:?}").to_lowercase()
-            );
-            eprintln!(
-                "Details: source={source:?} at {}, filters: search={}, rows={}, since={},
-                until={}, lines={:?}, reverse={}, mode={:?}; result 0 rows (maybe file empty or all filtered out)",
-                vf.path.display(),
-                search_re.is_some(),
-                row_filters.is_some(),
-                since.is_some(),
-                until.is_some(),
-                lines_outer,
-                reverse,
-                mode
-            );
-            exit(2);
-        }
+    let table = if let Some(e) = build_table::<T>(&ret, mode) { e } else {
+        eprintln!(
+            "Error: No entries to display for {} — table empty after filtering (0 rows).",
+            format!("{source:?}").to_lowercase()
+        );
+        eprintln!(
+            "Hint: Try relaxing filters: remove --search/--rows,
+            widen --since/--until, increase -l, or use --raw for tab-separated output.
+            Check --list-columns for {} and try without filters.",
+            format!("{source:?}").to_lowercase()
+        );
+        eprintln!(
+            "Details: source={source:?} at {}, filters: search={}, rows={}, since={},
+            until={}, lines={:?}, reverse={}, mode={:?}; result 0 rows (maybe file empty or all filtered out)",
+            vf.path.display(),
+            search_re.is_some(),
+            row_filters.is_some(),
+            since.is_some(),
+            until.is_some(),
+            lines_outer,
+            reverse,
+            mode
+        );
+        exit(2);
     };
     // For table output, use pager (less -S -R) when stdout is a TTY and --no-pager not set.
     // Raw output (tab-separated) never uses pager — use --raw for pipe/grep.
@@ -849,19 +842,16 @@ fn print_raw_file<T>(
 
     let ps = possible_paths(source);
     let attempted: Vec<String> = ps.iter().map(|p| p.path.to_string()).collect();
-    let vf = match filtered_finfo(ps) {
-        Some(e) => e,
-        None => {
-            eprintln!("Error: No readable log file found for {source:?}.");
-            eprintln!(
-                "Hint: Check that log files exist ({}) and that Cassandra has read access — 
-                try 'sudo ./cap.sh' or run with sudo. See 'cassandra {} --help' for expected paths.",
-                attempted.join(", "),
-                format!("{source:?}").to_lowercase()
-            );
-            eprintln!("Details: attempted paths: {}", attempted.join(", "));
-            exit(2);
-        }
+    let vf = if let Some(e) = filtered_finfo(ps) { e } else {
+        eprintln!("Error: No readable log file found for {source:?}.");
+        eprintln!(
+            "Hint: Check that log files exist ({}) and that Cassandra has read access — 
+            try 'sudo ./cap.sh' or run with sudo. See 'cassandra {} --help' for expected paths.",
+            attempted.join(", "),
+            format!("{source:?}").to_lowercase()
+        );
+        eprintln!("Details: attempted paths: {}", attempted.join(", "));
+        exit(2);
     };
 
     use crate::parsers::selector::LogParser;
@@ -1112,7 +1102,7 @@ fn print_raw_file<T>(
                     break;
                 }
                 count += 1;
-                if count % 100 == 0 {
+                if count.is_multiple_of(100) {
                     let _ = handle.flush();
                 }
             }
@@ -1146,7 +1136,7 @@ fn print_raw_journal(
     use crate::parsers::selector::JournalParser;
 
     let jlog = JournalLog;
-    let mut journal = match jlog.connect(scope.clone()) {
+    let mut journal = match jlog.connect(scope) {
         Ok(j) => j,
         Err(e) => {
             eprintln!(
@@ -1168,9 +1158,7 @@ fn print_raw_journal(
         Err(e) => {
             eprintln!(
                 "Error: Cannot read journal (scope={scope:?}) at realtime {}: {e:#?}",
-                since_usec
-                    .map(|u| u.to_string())
-                    .unwrap_or_else(|| "tail".to_string())
+                since_usec.map_or_else(|| "tail".to_string(), |u| u.to_string())
             );
             eprintln!(
                 "Hint: Try without --since/--until, check journalctl, or try --scope system vs user."
@@ -1374,7 +1362,7 @@ fn print_raw_journal(
         if let Some(rec) = JournalRecord::from_entry(&entry) {
             let _ = writeln!(handle, "{}", rec.fields().join("\t"));
             count += 1;
-            if count % 100 == 0 {
+            if count.is_multiple_of(100) {
                 let _ = handle.flush();
             }
         }

@@ -43,6 +43,7 @@ pub trait TableDisplay {
     fn fields(&self) -> Vec<String>;
 }
 
+#[must_use]
 pub fn display_opt(opt: &Option<String>) -> String {
     opt.as_deref().unwrap_or("-").to_string()
 }

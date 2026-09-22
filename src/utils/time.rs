@@ -40,11 +40,10 @@ pub fn rfc3164_to_datetime(timestamp: &str, now: DateTime<Utc>) -> Result<DateTi
         .and_then(|d| d.and_hms_opt(hour, minute, second))
         .ok_or_else(|| format!("invalid date '{timestamp}'"))?;
     let mut dt = Utc.from_utc_datetime(&naive);
-    if dt > now {
-        if let Some(prev) = NaiveDate::from_ymd_opt(year - 1, month, day).and_then(|d| d.and_hms_opt(hour, minute, second)) {
+    if dt > now
+        && let Some(prev) = NaiveDate::from_ymd_opt(year - 1, month, day).and_then(|d| d.and_hms_opt(hour, minute, second)) {
             dt = Utc.from_utc_datetime(&prev);
         }
-    }
     Ok(dt)
 }
 
@@ -81,9 +80,8 @@ pub fn parse_human_time(s: &str) -> Result<DateTime<Utc>, String> {
                 let chrono_dur = chrono::Duration::from_std(dur).map_err(|e| e.to_string())?;
                 if rest.starts_with('-') {
                     return Ok(Utc::now() - chrono_dur);
-                } else {
-                    return Ok(Utc::now() + chrono_dur);
                 }
+                return Ok(Utc::now() + chrono_dur);
             }
         }
     }
@@ -107,12 +105,11 @@ pub fn parse_human_time(s: &str) -> Result<DateTime<Utc>, String> {
         return Ok(Utc::now() - chrono_dur);
     }
     let no_space: String = trimmed.chars().filter(|c| !c.is_whitespace()).collect();
-    if let Ok(dur) = humantime::parse_duration(&no_space) {
-        if trimmed.chars().any(|c| c.is_ascii_alphabetic()) {
+    if let Ok(dur) = humantime::parse_duration(&no_space)
+        && trimmed.chars().any(|c| c.is_ascii_alphabetic()) {
             let chrono_dur = chrono::Duration::from_std(dur).map_err(|e| e.to_string())?;
             return Ok(Utc::now() - chrono_dur);
         }
-    }
 
     if let Ok(dt) = DateTime::parse_from_rfc3339(trimmed) {
         return Ok(dt.with_timezone(&Utc));
@@ -135,6 +132,7 @@ pub fn parse_human_time(s: &str) -> Result<DateTime<Utc>, String> {
     Err(format!("invalid time '{s}' — try '2024-01-01', '2024-01-01T10:00:00', '15 days ago', '2h ago', 'now-2h', 'today', 'yesterday'"))
 }
 
+#[must_use]
 pub fn datetime_to_micros(dt: DateTime<Utc>) -> u64 {
     let dur = dt.timestamp_micros();
     if dur < 0 { 0 } else { dur as u64 }
