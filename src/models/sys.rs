@@ -2,7 +2,6 @@ use crate::models::{FromLogEntry, LogEntry};
 
 #[derive(Debug)]
 pub struct SysRecord {
-    //syslog or messages
     pub priority: Option<String>, //filtered
     pub timestamp: String,
     pub host: String,

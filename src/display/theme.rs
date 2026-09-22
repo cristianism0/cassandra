@@ -1,7 +1,6 @@
 use anstyle::Color;
 use clap::builder::styling::{Style as ClapStyle, Styles};
 
-// Rose Pine Moon: https://rosepinetheme.com/palette/moon
 pub mod palette {
     use anstyle::{Color, RgbColor};
     pub const BASE: Color = Color::Rgb(RgbColor(35, 33, 54)); // #232136
@@ -18,8 +17,6 @@ pub mod palette {
     pub const IRIS: Color = Color::Rgb(RgbColor(196, 167, 231)); // #c4a7e7
 }
 
-// Clap help styles — Rose Pine Moon.
-// Header: iris, Usage: pine, Literal: gold, Placeholder: foam, Error: love.
 pub fn rose_pine_moon() -> Styles {
     let header = ClapStyle::new().fg_color(Some(palette::IRIS)).bold();
     let usage = ClapStyle::new().fg_color(Some(palette::PINE)).bold();
@@ -43,7 +40,6 @@ pub fn rose_pine_moon() -> Styles {
         .context_value(context_val)
 }
 
-// TUI theme — central place to customize colors for future `ratatui`/`comfy-table`.
 #[derive(Debug, Clone)]
 pub struct Theme {
     pub bg: Color,
@@ -72,6 +68,4 @@ impl Theme {
         }
     }
 
-    // For comfy-table: map to `comfy_table::Color` when needed, or use `crossterm` for TUI.
-    // Example for future TUI: `ratatui::style::Style::default().fg(self.fg.into()).bg(self.bg.into())`
 }

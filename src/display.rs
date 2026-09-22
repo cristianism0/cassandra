@@ -1,3 +1,4 @@
+pub mod pager;
 pub mod table_cli;
 pub mod theme;
 
@@ -27,6 +28,7 @@ pub enum TableMode {
     Compact { max_col_width: usize },
     Summary { columns: Vec<String> },
     KeyValue,
+    Raw,
 }
 
 pub enum RecordType<'a> {
@@ -79,25 +81,25 @@ impl TableDisplay for JournalRecord {
             "syslog_facility",
             "syslog_identifier",
             "tid",
-            "_audit_loginuid",
-            "_audit_session",
-            "_boot_id",
-            "_gid",
-            "_hostname",
-            "_machine_id",
-            "_pid",
-            "_runtime_scope",
-            "_selinux_context",
-            "_source_monotonic_timestamp",
-            "_source_boottime_timestamp",
-            "_source_realtime_timestamp",
-            "_systemd_cgroup",
-            "_systemd_owner_uid",
-            "_systemd_slice",
-            "_systemd_unit",
-            "_systemd_user_slice",
-            "_transport",
-            "_uid",
+            "audit_loginuid",
+            "audit_session",
+            "boot_id",
+            "gid",
+            "hostname",
+            "machine_id",
+            "pid",
+            "runtime_scope",
+            "selinux_context",
+            "source_monotonic_timestamp",
+            "source_boottime_timestamp",
+            "source_realtime_timestamp",
+            "systemd_cgroup",
+            "systemd_owner_uid",
+            "systemd_slice",
+            "systemd_unit",
+            "systemd_user_slice",
+            "transport",
+            "uid",
         ]
     }
     fn fields(&self) -> Vec<String> {
@@ -172,5 +174,65 @@ impl TableDisplay for WtmpRecord {
             self.e_termination.to_string(),
             self.e_exit.to_string(),
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_opt_some_and_none() {
+        assert_eq!(display_opt(&Some("x".to_string())), "x");
+        assert_eq!(display_opt(&None), "-");
+    }
+
+    #[test]
+    fn headers_match_fields_len_for_all_records() {
+        let sys = SysRecord {
+            priority: None,
+            timestamp: "t".to_string(),
+            host: "h".to_string(),
+            process: "p".to_string(),
+            message: "m".to_string(),
+        };
+        assert_eq!(SysRecord::headers().len(), sys.fields().len());
+
+        let auth = AuthRecord {
+            priority: None,
+            timestamp: "t".to_string(),
+            host: "h".to_string(),
+            process: "p".to_string(),
+            caller: None,
+            message: "m".to_string(),
+        };
+        assert_eq!(AuthRecord::headers().len(), auth.fields().len());
+
+        let wtmp = WtmpRecord {
+            ut_type: 7,
+            ut_pid: 1,
+            ut_dname: "d".to_string(),
+            ut_id: "i".to_string(),
+            ut_user: "u".to_string(),
+            ut_host: "h".to_string(),
+            e_termination: 0,
+            e_exit: 0,
+        };
+        assert_eq!(WtmpRecord::headers().len(), wtmp.fields().len());
+    }
+
+    #[test]
+    fn none_options_render_as_dash() {
+        let auth = AuthRecord {
+            priority: None,
+            timestamp: "t".to_string(),
+            host: "h".to_string(),
+            process: "p".to_string(),
+            caller: None,
+            message: "m".to_string(),
+        };
+        let fields = auth.fields();
+        assert_eq!(fields[0], "-");
+        assert_eq!(fields[4], "-");
     }
 }

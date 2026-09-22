@@ -77,10 +77,12 @@ These flags are **mutually exclusive** and work with any command:
 
 | Flag | Description |
 |------|-------------|
-| `--standard` | Default tabular view (default) |
+| `--standard` | Default tabular view (default, paged via `less -S -R` when TTY) |
 | `-c`,`--compact <WIDTH>` | Truncate each column to `WIDTH` characters |
 | `-s`,`--summary <COLS>` | Show only comma-separated columns, e.g. `--summary time,msg` |
 | `-k, --key <KEY>` | Render a single field as key/value pairs |
+| `-R, --raw` | Raw tab-separated, no wrapping/truncation, no pager (streaming, grep-friendly) |
+| `--no-pager` | Disable pager even when TTY (print directly) |
 
 ```sh
 # Compact view, max 40 chars per column
@@ -98,10 +100,13 @@ cassandra journal --key message
 | Flag | Description |
 |------|-------------|
 | `-l, --lines <N>` | Limit output to last N lines |
-| `-r, --reverse` | Reverse output order (newest first) |
-| `--rows <COLS>` | *(planned — not yet in the CLI)* Select rows by index |
-| `--gravity <LEVEL>` | *(planned — not yet in the CLI)* Journal priority filter: critical, medium, low |
-| `--search <TEXT>` | *(planned — not yet in the CLI)* Grep-like filtering |
+| `-r, --reverse` | Reverse output order (newest first, flag, no value) |
+| `-F, --rows <COL=VAL>` | Filter rows `col=val` comma-separated, e.g. `--rows host=myhost,process=sshd` |
+| `-e, --search <REGEX>` | Regex search across all fields, e.g. `--search 'error|failed'` |
+| `-S, --since <TIME>` | Since time (UTC) `2024-01-01`, `15 days ago`, `2h ago`, `now-2h`, `today` |
+| `-U, --until <TIME>` | Until time (UTC) |
+| `-g, --gravity <LEVEL>` | Journal only: `critical` (0-3), `medium` (4-5), `low` (6-7) |
+| `--list-columns` | List available columns for the subcommand (journal respects `--scope`) |
 
 ```sh
 # Last 50 auth entries, chronological order
@@ -109,9 +114,21 @@ cassandra auth -l 50
 
 # Last 20 journal entries, oldest first
 cassandra journal -l 20 -r
+
+# Time filtering (UTC)
+cassandra sys --since '2h ago' --until '2024-01-01'
+cassandra journal --since '15 days ago' --gravity low
+
+# Pager: table output is paged via `less -S -R` when TTY for horizontal scroll
+# Use --raw for pipe/grep (no pager, tab-separated, no wrapping/truncation)
+cassandra sys --search 'Failed.*password' --raw | grep myhost
+cassandra journal --summary message,priority --raw | cut -f1
+
+# Disable pager explicitly
+cassandra sys --no-pager -l 100 | cat
 ```
 
-> **Note**: `--rows`, `--gravity` and `--search` are planned but not yet exposed by the CLI.
+Pager respects `$PAGER` (default `less -S -R`) and `NO_PAGER`/`CI` env. Table overflow no longer inserts `\n` inside words (`Disabled` + 60-char truncated); filtering (`--search`/`--rows`/`--since`) happens before truncation.
 
 Run `cassandra --help` or `cassandra <command> --help` for the full reference.
 
@@ -133,7 +150,8 @@ src/
 ├── parsers.rs         # Parsers module root
 ├── utils.rs           # Utils module root
 ├── display/
-│   ├── table_cli.rs   # Table rendering (comfy-table)
+│   ├── table_cli.rs   # Table rendering (comfy-table, Disabled + truncated)
+│   ├── pager.rs       # Pager helper (less -S -R, respects $PAGER/NO_PAGER)
 │   └── theme.rs       # Themes (Rose Pine Moon / clap styling)
 ├── models/
 │   ├── auth.rs        # Auth record model
@@ -141,22 +159,25 @@ src/
 │   ├── sys.rs         # Syslog record model
 │   └── wtmp.rs        # Wtmp record model
 ├── parsers/
-│   ├── selector.rs    # Parser dispatch
-│   ├── sys.rs         # RFC 3164 syslog parser
-│   ├── auth.rs        # Auth/secure parser (RFC 3164)
-│   ├── wtmp.rs        # Binary wtmp parser
-│   └── journal.rs     # systemd journal parser
+│   ├── selector.rs    # Parser dispatch (try_iter streaming)
+│   ├── sys.rs         # RFC 3164 syslog parser (try_iter)
+│   ├── auth.rs        # Auth/secure parser (RFC 3164, try_iter)
+│   ├── wtmp.rs        # Binary wtmp parser (try_iter)
+│   └── journal.rs     # systemd journal parser (try_iter, native seek)
 └── utils/
-    └── discovery.rs   # File detection & metadata
+    ├── discovery.rs   # File detection & metadata
+    └── time.rs        # humantime + chrono time parsing (since/until)
 ```
 
 ## Dependencies
 
 - `clap` — CLI parsing
 - `anstyle` — Styling/ANSI colors (themes)
-- `comfy-table` — Table rendering
+- `comfy-table` — Table rendering (Disabled, truncated 60)
 - `regex` — Log line parsing
 - `systemd` — Journal access
+- `chrono` + `humantime` — `since`/`until` time parsing
+- ` pager` — `less -S -R` via `$PAGER` (no extra crate, `std::process`)
 
 ## License
 

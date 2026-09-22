@@ -1,0 +1,55 @@
+name: cassandra
+arch: amd64
+platform: linux
+version: 0.1.0
+section: utils
+priority: optional
+maintainer: cristian <cristianism0@github.com>
+description: |
+  Cassandra — fast Rust CLI for Linux logs (journald, auth, syslog, wtmp).
+  Cross-distro, RFC 3164, streaming raw, pager less -S -R.
+vendor: cristianism0
+homepage: https://github.com/cristianism0/cassandra
+license: GPL-3.0
+contents:
+  - src: /home/cristian/Sandbox/test_cassandra/cassandra
+    dst: /usr/bin/cassandra
+    file_info:
+      mode: 0755
+  - src: ./cap.sh
+    dst: /usr/share/cassandra/cap.sh
+    file_info:
+      mode: 0755
+  - src: ./README.md
+    dst: /usr/share/doc/cassandra/README.md
+  - src: ./LICENSE
+    dst: /usr/share/doc/cassandra/LICENSE
+scripts:
+  postinstall: ./nfpm/scripts/postinstall.sh
+  postremove: ./nfpm/scripts/postremove.sh
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.34)
+      - libsystemd0
+    scripts:
+      postinstall: ./nfpm/scripts/postinstall.sh
+      postremove: ./nfpm/scripts/postremove.sh
+  rpm:
+    depends:
+      - glibc >= 2.34
+      - systemd-libs
+    scripts:
+      postinstall: ./nfpm/scripts/postinstall.sh
+      postremove: ./nfpm/scripts/postremove.sh
+  archlinux:
+    depends:
+      - glibc>=2.34
+      - systemd-libs
+    scripts:
+      postinstall: ./nfpm/scripts/postinstall.sh
+      postremove: ./nfpm/scripts/postremove.sh
+rpm:
+  summary: Fast Rust CLI for Linux logs
+  packager: cristian <cristianism0@github.com>
+  group: System Environment/Base

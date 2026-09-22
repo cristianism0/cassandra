@@ -44,8 +44,6 @@ pub const SOURCES: &[SourceCandidate] = &[
         source: LogSource::Wtmp,
         path: "/var/log/wtmp",
     },
-    // legacy - fallback for journald and openrc
-    // rhel
     SourceCandidate {
         source: LogSource::Auth,
         path: "/var/log/secure",
@@ -54,7 +52,6 @@ pub const SOURCES: &[SourceCandidate] = &[
         source: LogSource::Sys,
         path: "/var/log/messages",
     },
-    //debian
     SourceCandidate {
         source: LogSource::Auth,
         path: "/var/log/auth.log",
@@ -65,7 +62,6 @@ pub const SOURCES: &[SourceCandidate] = &[
     },
 ];
 
-// ---------- File Variants ----------
 #[derive(Debug)]
 pub enum FsKind {
     Regular,
@@ -86,7 +82,6 @@ pub enum ContentFormat {
     Unknown,
 }
 
-// ---------- File Data Structures ----------
 #[derive(Debug)]
 pub struct Finfo {
     pub path: PathBuf,

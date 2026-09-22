@@ -70,17 +70,39 @@ fn build_table_with<T: TableDisplay>(
     let mut table = comfy_table::Table::new();
     table
         .load_style(style)
-        .set_content_arrangement(ContentArrangement::Dynamic)
+        // `Dynamic` inserts `\n` inside words to fit terminal width and breaks
+        // `--search` grep (e.g. `message` split over two lines). Use `Disabled`
+        // and rely on `truncate_content` for `compact`; `standard`/`summary` also
+        // truncate to a sane default to avoid consuming the whole terminal.
+        .set_content_arrangement(ContentArrangement::Disabled)
         .enforce_styling()
         .set_header(headers);
+
+    // (see `src/cli.rs:645`), so `truncate_content` here only affects display —
+    // grep-friendly output use `--raw` (tab-separated, no wrapping/truncation).
+    let effective_width = max_col_width;
+    // For `standard`/`summary` without explicit `max_col_width`, truncate long
+    // over the terminal. This is smaller than `Disabled` would otherwise render
+    // original untruncated fields.
+    let default_truncate: Option<usize> = if effective_width.is_none() {
+        Some(60)
+    } else {
+        None
+    };
 
     for row in rows {
         let fields = row.fields();
         let cells: Vec<String> = col_map
             .iter()
             .map(|&i| {
-                if let Some(max_width) = max_col_width {
-                    truncate_content(&fields[i], max_width)
+                if let Some(w) = effective_width {
+                    truncate_content(&fields[i], w)
+                } else if let Some(def) = default_truncate {
+                    if fields[i].chars().count() > def {
+                        truncate_content(&fields[i], def)
+                    } else {
+                        fields[i].clone()
+                    }
                 } else {
                     fields[i].clone()
                 }
@@ -89,11 +111,20 @@ fn build_table_with<T: TableDisplay>(
         table.add_row(cells);
     }
 
-    if let Some(width) = max_col_width {
+    if let Some(width) = effective_width {
         let constraints: Vec<_> = (0..table.column_count())
             .map(|_| {
                 comfy_table::ColumnConstraint::UpperBoundary(comfy_table::Width::Fixed(
                     width as u16,
+                ))
+            })
+            .collect();
+        table.set_constraints(constraints);
+    } else if let Some(def) = default_truncate {
+        let constraints: Vec<_> = (0..table.column_count())
+            .map(|_| {
+                comfy_table::ColumnConstraint::UpperBoundary(comfy_table::Width::Fixed(
+                    def as u16,
                 ))
             })
             .collect();
@@ -103,7 +134,6 @@ fn build_table_with<T: TableDisplay>(
     table.trim_fmt()
 }
 
-// FIXME: the hiding columns is not working
 fn render_key_value<T: TableDisplay>(rows: Vec<&T>, hide_columns: Option<&[usize]>) -> String {
     let mut output = String::new();
     let all_headers = T::headers();
@@ -120,10 +150,31 @@ fn render_key_value<T: TableDisplay>(rows: Vec<&T>, hide_columns: Option<&[usize
     output
 }
 
+pub fn build_raw<T: TableDisplay + FromLogEntry>(
+    entries: &[LogEntry],
+) -> Option<String> {
+    let rows = group::<T>(entries);
+    if rows.is_empty() {
+        return None;
+    }
+    let headers = T::headers();
+    let mut out = String::new();
+    out.push_str(&headers.join("\t"));
+    out.push('\n');
+    for r in rows {
+        out.push_str(&r.fields().join("\t"));
+        out.push('\n');
+    }
+    Some(out.trim_end().to_string())
+}
+
 pub fn build_table<T: TableDisplay + FromLogEntry>(
     entries: &[LogEntry],
     mode: &TableMode,
 ) -> Option<String> {
+    if let TableMode::Raw = mode {
+        return build_raw::<T>(entries);
+    }
     let rows = group::<T>(entries);
     if rows.is_empty() {
         return None;
@@ -141,6 +192,7 @@ pub fn build_table<T: TableDisplay + FromLogEntry>(
             (keep, None)
         }
         TableMode::KeyValue => unreachable!(),
+        TableMode::Raw => unreachable!(),
     };
     Some(build_table_with(
         &rows,
@@ -154,6 +206,10 @@ pub fn build_journal_table<T: TableDisplay + FromLogEntry>(
     scope: &JournalScope,
     mode: &TableMode,
 ) -> Option<String> {
+    if let TableMode::Raw = mode {
+        // To keep raw grep-friendly and complete, show all headers.
+        return build_raw::<T>(entries);
+    }
     let rows = group::<T>(entries);
     if rows.is_empty() {
         return None;
@@ -166,14 +222,30 @@ pub fn build_journal_table<T: TableDisplay + FromLogEntry>(
         return Some(render_key_value(rows, hide_columns.as_deref()));
     }
 
-    let keep_columns = hide_columns.as_ref().map(|h| {
-        (0..headers.len())
-            .filter(|i| !h.contains(i))
-            .collect::<Vec<usize>>()
-    });
-    let max_col_width = match mode {
-        TableMode::Compact { max_col_width } => Some(*max_col_width),
-        _ => None,
+    let (keep_columns, max_col_width) = match mode {
+        TableMode::Summary { columns } => {
+            let keep = column_indices(&headers, columns);
+            let keep_opt = if keep.is_empty() { None } else { Some(keep) };
+            (keep_opt, None)
+        }
+        TableMode::Compact { max_col_width } => {
+            let keep = hide_columns.as_ref().map(|h| {
+                (0..headers.len())
+                    .filter(|i| !h.contains(i))
+                    .collect::<Vec<usize>>()
+            });
+            (keep, Some(*max_col_width))
+        }
+        TableMode::Standard => {
+            let keep = hide_columns.as_ref().map(|h| {
+                (0..headers.len())
+                    .filter(|i| !h.contains(i))
+                    .collect::<Vec<usize>>()
+            });
+            (keep, None)
+        }
+        TableMode::KeyValue => unreachable!(),
+        TableMode::Raw => unreachable!(),
     };
     Some(build_table_with(
         &rows,
@@ -198,4 +270,196 @@ pub fn render_all_tables(records: Vec<RecordType<'_>>, mode: &TableMode) -> Vec<
         }
     }
     rendered
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::display::TableMode;
+    use crate::models::journal::JournalScope;
+
+    fn sys_entries() -> Vec<LogEntry> {
+        vec![
+            LogEntry::Sys(SysRecord {
+                priority: Some("34".to_string()),
+                timestamp: "Oct 11 22:14:15".to_string(),
+                host: "myhost".to_string(),
+                process: "proc".to_string(),
+                message: "hello world, this is a long message".to_string(),
+            }),
+            LogEntry::Sys(SysRecord {
+                priority: None,
+                timestamp: "Oct 11 22:14:16".to_string(),
+                host: "other".to_string(),
+                process: "cron".to_string(),
+                message: "second".to_string(),
+            }),
+        ]
+    }
+
+    fn journal_entry() -> Vec<LogEntry> {
+        vec![LogEntry::Journal(Box::new(JournalRecord {
+            message: "msg".to_string(),
+            priority: Some("3".to_string()),
+            code_file: None,
+            code_func: None,
+            code_line: None,
+            syslog_facility: None,
+            syslog_identifier: None,
+            tid: None,
+            audit_loginuid: None,
+            audit_session: None,
+            boot_id: None,
+            gid: None,
+            hostname: Some("myhost".to_string()),
+            machine_id: None,
+            pid: None,
+            runtime_scope: None,
+            selinux_context: None,
+            source_monotonic_timestamp: None,
+            source_boottime_timestamp: None,
+            source_realtime_timestamp: None,
+            systemd_cgroup: None,
+            systemd_owner_uid: None,
+            systemd_slice: None,
+            systemd_unit: None,
+            systemd_user_slice: None,
+            transport: Some("journal".to_string()),
+            uid: None,
+        }))]
+    }
+
+    #[test]
+    fn truncate_short_string_unchanged() {
+        assert_eq!(truncate_content("abc", 10), "abc");
+        assert_eq!(truncate_content("abc", 3), "abc");
+    }
+
+    #[test]
+    fn truncate_long_string_adds_ellipsis() {
+        assert_eq!(truncate_content("abcdef", 5), "ab...");
+        assert_eq!(truncate_content("abcdef", 2), "ab");
+    }
+
+    #[test]
+    fn column_indices_case_insensitive_and_missing() {
+        let headers = ["message", "host", "process"];
+        let got = column_indices(&headers, &["HOST".to_string(), "missing".to_string()]);
+        assert_eq!(got, vec![1]);
+    }
+
+    #[test]
+    fn group_filters_by_type() {
+        let entries = sys_entries();
+        let sys: Vec<&SysRecord> = group(&entries);
+        let auth: Vec<&AuthRecord> = group(&entries);
+        assert_eq!(sys.len(), 2);
+        assert!(auth.is_empty());
+    }
+
+    #[test]
+    fn build_table_standard_has_headers_and_rows() {
+        let entries = sys_entries();
+        build_table::<SysRecord>(&entries, &TableMode::Standard).expect("table");
+        assert!(SysRecord::headers().contains(&"timestamp"));
+        let rows: Vec<&SysRecord> = group(&entries);
+        assert_eq!(rows.len(), 2);
+        assert!(
+            rows[0].fields().iter().any(|f| f.contains("hello world")),
+            "row fields must carry the parsed message"
+        );
+    }
+
+    #[test]
+    fn build_table_empty_returns_none() {
+        let empty: Vec<LogEntry> = vec![];
+        assert!(build_table::<SysRecord>(&empty, &TableMode::Standard).is_none());
+    }
+
+    #[test]
+    fn build_table_compact_renders() {
+        let entries = sys_entries();
+        let out = build_table::<SysRecord>(&entries, &TableMode::Compact { max_col_width: 8 })
+            .expect("table");
+        assert!(!out.is_empty());
+    }
+
+    #[test]
+    fn build_table_summary_keeps_only_requested() {
+        let entries = sys_entries();
+        let columns = vec!["message".to_string()];
+        let keep = column_indices(&SysRecord::headers(), &columns);
+        assert_eq!(keep, vec![4]);
+        let rows: Vec<&SysRecord> = group(&entries);
+        assert_eq!(
+            rows[0].fields()[keep[0]],
+            "hello world, this is a long message"
+        );
+        build_table::<SysRecord>(&entries, &TableMode::Summary { columns }).expect("table");
+    }
+
+    #[test]
+    fn summary_unknown_column_selects_nothing() {
+        let keep = column_indices(
+            &SysRecord::headers(),
+            &["no-such-column".to_string()],
+        );
+        assert!(keep.is_empty());
+    }
+
+    #[test]
+    fn build_table_keyvalue_marks_entries() {
+        let entries = sys_entries();
+        let out = build_table::<SysRecord>(&entries, &TableMode::KeyValue).expect("table");
+        assert!(out.contains("[ Entry 1 ]"));
+        assert!(out.contains("[ Entry 2 ]"));
+    }
+
+    #[test]
+    fn journal_hide_list_covers_hostname() {
+        let headers = JournalRecord::headers();
+        let host_idx = headers
+            .iter()
+            .position(|h| *h == "hostname")
+            .expect("hostname header exists");
+        let hidden = column_indices(&headers, JOURNAL_KERNEL_COL);
+        assert!(
+            hidden.contains(&host_idx),
+            "system scope must hide the hostname column"
+        );
+    }
+
+    #[test]
+    fn build_journal_user_scope_renders() {
+        let entries = journal_entry();
+        build_journal_table::<JournalRecord>(
+            &entries,
+            &JournalScope::User,
+            &TableMode::Standard,
+        )
+        .expect("table");
+    }
+
+    #[test]
+    fn build_journal_system_scope_hides_kernel_cols() {
+        let entries = journal_entry();
+        let out = build_journal_table::<JournalRecord>(
+            &entries,
+            &JournalScope::System,
+            &TableMode::Standard,
+        )
+        .expect("table");
+        assert!(!out.contains("hostname"));
+    }
+
+    #[test]
+    fn render_all_tables_skips_empty() {
+        let sys = sys_entries();
+        let empty: Vec<LogEntry> = vec![];
+        let out = render_all_tables(
+            vec![RecordType::Sys(&sys), RecordType::Auth(&empty)],
+            &TableMode::Standard,
+        );
+        assert_eq!(out.len(), 1);
+    }
 }

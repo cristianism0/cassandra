@@ -41,11 +41,11 @@ pub struct JournalPreset {
 pub const JOURNAL_CRITICAL: &[&str] = &[
     "message",
     "code_file",
-    "_hostname",
-    "_systemd_unit",
-    "_selinux_context",
-    "_pid",
-    "_source_realtime_timestamp",
+    "hostname",
+    "systemd_unit",
+    "selinux_context",
+    "pid",
+    "source_realtime_timestamp",
 ];
 
 pub const JOURNAL_MEDIUM: &[&str] = &[
@@ -53,25 +53,25 @@ pub const JOURNAL_MEDIUM: &[&str] = &[
     "code_file",
     "code_func",
     "code_line",
-    "_audit_loginuid",
-    "_audit_session",
-    "_selinux_context",
-    "_pid",
-    "tid",
-    "_boot_id",
+    "audit_loginuid",
+    "audit_session",
+    "selinux_context",
+    "pid",
+    "id",
+    "boot_id",
 ];
 
 pub const JOURNAL_LOW: &[&str] = &[
     "message",
-    "_transport",
+    "transport",
     "syslog_facility",
-    "_runtime_scope",
-    "_systemd_cgroup",
-    "_systemd_user_slice",
-    "_systemd_owner_uid",
-    "_machine_id",
-    "_source_monotonic_timestamp",
-    "_source_boottime_timestamp",
+    "runtime_scope",
+    "systemd_cgroup",
+    "systemd_user_slice",
+    "systemd_owner_uid",
+    "machine_id",
+    "source_monotonic_timestamp",
+    "source_boottime_timestamp",
 ];
 
 pub const JOURNAL_KERNEL_COL: &[&str] = &[
@@ -79,13 +79,13 @@ pub const JOURNAL_KERNEL_COL: &[&str] = &[
     "PRIORITY",
     "SYSLOG_FACILITY",
     "SYSLOG_IDENTIFIER",
-    "_BOOT_ID",
-    "_HOSTNAME",
-    "_MACHINE_ID",
-    "_RUNTIME_SCOPE",
-    "_SOURCE_BOOTTIME_TIMESTAMP",
-    "_SOURCE_MONOTONIC_TIMESTAMP",
-    "_TRANSPORT",
+    "BOOT_ID",
+    "HOSTNAME",
+    "MACHINE_ID",
+    "RUNTIME_SCOPE",
+    "SOURCE_BOOTTIME_TIMESTAMP",
+    "SOURCE_MONOTONIC_TIMESTAMP",
+    "TRANSPORT",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ValueEnum)]
@@ -103,7 +103,6 @@ impl FromLogEntry for JournalRecord {
     }
 }
 
-// --------- Errors --------
 #[derive(Debug)]
 pub enum JournalError {
     IoError(String),
