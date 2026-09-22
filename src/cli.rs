@@ -158,7 +158,9 @@ pub fn run_cli() {
     let args = table_cli_args();
     let l: Option<u64> = match args.lines {
         Some(0) => {
-            eprintln!("There's no line to parse, try to use a number greater than 0!");
+            eprintln!("Error: --lines 0 is invalid — no lines to display.");
+            eprintln!("Hint: Use a value greater than 0, e.g. -l 10 or omit --lines for the default (50 for journal, all for files).");
+            eprintln!("Details: --lines expects N > 0");
             exit(2);
         }
         Some(n) => Some(n),
@@ -173,7 +175,9 @@ pub fn run_cli() {
         Some(pat) => match Regex::new(pat) {
             Ok(re) => Some(re),
             Err(e) => {
-                eprintln!("Error: Invalid search regex '{pat}': {e}");
+                eprintln!("Error: Invalid search regex (--search) '{pat}': {e}");
+                eprintln!("Hint: Use a valid Rust regex, e.g. --search 'error|failed' or --search 'Failed.*password' (-e). Escape special chars or use --rows for exact match.");
+                eprintln!("Details: regex parse error: {e}");
                 exit(2);
             }
         },
@@ -185,7 +189,8 @@ pub fn run_cli() {
             Ok(v) => Some(v),
             Err(e) => {
                 eprintln!("Error: Invalid --rows filter: {e}");
-                eprintln!("Hint: Use --rows col=value[,col2=value2] — e.g. --rows host=myhost,process=sshd");
+                eprintln!("Hint: Use --rows col=value[,col2=value2] — e.g. --rows host=myhost,process=sshd (-F). Quote values with spaces.");
+                eprintln!("Details: expected col=value, got '{raw:?}'");
                 exit(2);
             }
         },
@@ -197,6 +202,8 @@ pub fn run_cli() {
             Ok(dt) => Some(dt),
             Err(e) => {
                 eprintln!("Error: Invalid --since '{s}': {e}");
+                eprintln!("Hint: Try --since '2024-01-01', '2024-01-01T10:00:00', '15 days ago', '2h ago', 'now-2h', 'today', 'yesterday' (UTC). Short: -S");
+                eprintln!("Details: {e}");
                 exit(2);
             }
         },
@@ -207,6 +214,8 @@ pub fn run_cli() {
             Ok(dt) => Some(dt),
             Err(e) => {
                 eprintln!("Error: Invalid --until '{s}': {e}");
+                eprintln!("Hint: Try --until '2024-01-01' or 'today' (UTC). Short: -U");
+                eprintln!("Details: {e}");
                 exit(2);
             }
         },
@@ -216,6 +225,8 @@ pub fn run_cli() {
         && since > until
     {
         eprintln!("Error: --since time is after --until time");
+        eprintln!("Hint: Swap --since and --until or use --since '2024-01-01' --until '2024-12-31' with since < until.");
+        eprintln!("Details: since={since} (UTC) > until={until} (UTC)");
         exit(2);
     }
 
@@ -350,23 +361,26 @@ pub fn run_cli() {
                     row_filters.as_deref(),
                 );
             } else {
+                let gravity_dbg = gravity.clone();
                 let mut j = match journal_parsed(scope, l, revs, since_usec, until_usec) {
                     Ok(le) => le,
                     Err(e) => {
-                        eprintln!(
-                            "Error: Cannot retrieve information from the journal.\nDetails: {e:#?}"
-                        );
+                        eprintln!("Error: Cannot retrieve entries from journal (scope={scope:?}) — journal unavailable or no permission.");
+                        eprintln!("Hint: Check that systemd-journald is running, try --scope user vs --scope system, and ensure read access — try 'sudo ./cap.sh' or 'journalctl --verify'.");
+                        eprintln!("Details: {e:#?}");
                         exit(2);
                     }
                 };
 
-                if let Some(g) = gravity {
-                    j = apply_gravity_filter(j, &g);
+                if let Some(g) = &gravity {
+                    j = apply_gravity_filter(j, g);
                 }
                 if let Some(filters) = row_filters.as_deref() {
                     let validated = validate_row_columns::<JournalRecord>(filters);
                     if let Err(e) = validated {
-                        eprintln!("Error: Invalid --rows filter: {e}");
+                        eprintln!("Error: Invalid --rows filter for journal: {e}");
+                        eprintln!("Hint: Use -F col=value — e.g. -F systemd_unit=sshd.service. Check --list-columns for journal (scope={scope:?}).");
+                        eprintln!("Details: {e}");
                         exit(2);
                     }
                     j = apply_rows_filter::<JournalRecord>(j, filters);
@@ -377,7 +391,9 @@ pub fn run_cli() {
 
                 let table = build_journal_table::<JournalRecord>(&j, &scope, &tmode);
                 let output = table.unwrap_or_else(|| {
-                    eprintln!("Error: Cassandra could not create the table.");
+                    eprintln!("Error: No entries to display for journal (scope={scope:?}) — table empty after filtering (0 rows).");
+                    eprintln!("Hint: Try relaxing filters: remove -e/--search, -F/--rows, widen -S/--since/-U/--until, increase -l, or use --raw. Check --list-columns and try without gravity.");
+                    eprintln!("Details: scope={scope:?}, gravity={gravity_dbg:?}, search={}, rows={}, since={}, until={}, lines={:?}, reverse={}; result 0 rows (journal empty or all filtered)", search_re.is_some(), row_filters.is_some(), since_usec.is_some(), until_usec.is_some(), l, revs);
                     exit(2);
                 });
                 let output = format!("{output}\n");
@@ -623,17 +639,19 @@ fn print_table<T>(
         && let Err(e) = validate_row_columns::<T>(filters)
     {
         eprintln!("Error: Invalid --rows filter: {e}");
+        eprintln!("Hint: Use --rows col=value[,col2=value2] — e.g. --rows host=myhost,process=sshd (-F). Check --list-columns for {source:?} available columns.");
+        eprintln!("Details: {e}");
         exit(2);
     }
 
     let ps = possible_paths(source);
+    let attempted: Vec<String> = ps.iter().map(|p| p.path.to_string()).collect();
     let vf = match filtered_finfo(ps) {
         Some(e) => e,
         None => {
-            eprintln!(
-                "Error: No available path.\nHint: Cassandra may lack the required permissions.\
-		       Try running 'cap.sh' to set binary capabilities."
-            );
+            eprintln!("Error: No readable log file found for {source:?}.");
+            eprintln!("Hint: Check that log files exist ({}) and that Cassandra has read access — try 'sudo ./cap.sh' or run with sudo. See 'cassandra {} --help' for expected paths.", attempted.join(", "), format!("{source:?}").to_lowercase());
+            eprintln!("Details: attempted paths: {}", attempted.join(", "));
             exit(2);
         }
     };
@@ -645,21 +663,21 @@ fn print_table<T>(
         Ok(e) => e,
         Err(e) => match e {
             ParseError::IoError(e) => {
-                eprintln!(
-                    "Error: An I/O error occurred while reading log files.\nHint: Ensure the\
-			   binary has sufficient capabilities using 'cap.sh'.\nDetails: {e}"
-                );
+                eprintln!("Error: I/O error reading {} at {}: {e}", format!("{source:?}").to_lowercase(), vf.path.display());
+                eprintln!("Hint: Ensure the binary has read access — try 'sudo ./cap.sh', check file permissions, or run with sudo.");
+                eprintln!("Details: {e}");
                 exit(2);
             }
             ParseError::MalformedLine(e) => {
-                eprintln!("Error: Found a malformed line in the log file.\nDetails: {e}");
+                eprintln!("Error: Malformed line in {} at {} — not RFC 3164.", format!("{source:?}").to_lowercase(), vf.path.display());
+                eprintln!("Hint: Check the file with --raw or 'head {}' — RFC 3164 expects '<pri>Mon DD HH:MM:SS host process: msg'. Use --raw to skip malformed lines with a warning.", vf.path.display());
+                eprintln!("Details: {e}");
                 exit(2);
             }
             ParseError::UnexpectedFormat(e) => {
-                eprintln!(
-                    "Error: Failed to parse log file. The format does not match the expected \
-			   structure.\nDetails: {e}"
-                );
+                eprintln!("Error: Failed to parse {} at {} — format does not match RFC 3164.", format!("{source:?}").to_lowercase(), vf.path.display());
+                eprintln!("Hint: Verify log format (RFC 3164) or try --raw to stream raw lines. Check 'cassandra {} --list-columns' for expected fields.", format!("{source:?}").to_lowercase());
+                eprintln!("Details: {e}");
                 exit(2);
             }
         },
@@ -687,7 +705,9 @@ fn print_table<T>(
     let table = match build_table::<T>(&ret, mode) {
         Some(e) => e,
         None => {
-            eprintln!("Error: Cassandra could not create the table.");
+            eprintln!("Error: No entries to display for {} — table empty after filtering (0 rows).", format!("{source:?}").to_lowercase());
+            eprintln!("Hint: Try relaxing filters: remove --search/--rows, widen --since/--until, increase -l, or use --raw for tab-separated output. Check --list-columns for {} and try without filters.", format!("{source:?}").to_lowercase());
+            eprintln!("Details: source={source:?} at {}, filters: search={}, rows={}, since={}, until={}, lines={:?}, reverse={}, mode={:?}; result 0 rows (maybe file empty or all filtered out)", vf.path.display(), search_re.is_some(), row_filters.is_some(), since.is_some(), until.is_some(), lines_outer, reverse, mode);
             exit(2);
         }
     };
@@ -712,17 +732,19 @@ fn print_raw_file<T>(
         && let Err(e) = validate_row_columns::<T>(filters)
     {
         eprintln!("Error: Invalid --rows filter: {e}");
+        eprintln!("Hint: Use --rows col=value[,col2=value2] — e.g. --rows host=myhost,process=sshd (-F). Check --list-columns for {source:?} available columns.");
+        eprintln!("Details: {e}");
         exit(2);
     }
 
     let ps = possible_paths(source);
+    let attempted: Vec<String> = ps.iter().map(|p| p.path.to_string()).collect();
     let vf = match filtered_finfo(ps) {
         Some(e) => e,
         None => {
-            eprintln!(
-                "Error: No available path.\nHint: Cassandra may lack the required permissions.\
-		       Try running 'cap.sh' to set binary capabilities."
-            );
+            eprintln!("Error: No readable log file found for {source:?}.");
+            eprintln!("Hint: Check that log files exist ({}) and that Cassandra has read access — try 'sudo ./cap.sh' or run with sudo. See 'cassandra {} --help' for expected paths.", attempted.join(", "), format!("{source:?}").to_lowercase());
+            eprintln!("Details: attempted paths: {}", attempted.join(", "));
             exit(2);
         }
     };
@@ -741,7 +763,9 @@ fn print_raw_file<T>(
                 match p.try_iter(&vf.path) {
                     Ok(it) => it,
                     Err(e) => {
-                        eprintln!("Error: Cannot open log file: {e:?}");
+                        eprintln!("Error: I/O error opening {} at {}: {e:?}", format!("{source:?}").to_lowercase(), vf.path.display());
+                        eprintln!("Hint: Ensure the binary has read access — try 'sudo ./cap.sh', check permissions, or run with sudo.");
+                        eprintln!("Details: {e:?}");
                         exit(2);
                     }
                 }
@@ -751,7 +775,9 @@ fn print_raw_file<T>(
                 match p.try_iter(&vf.path) {
                     Ok(it) => it,
                     Err(e) => {
-                        eprintln!("Error: Cannot open log file: {e:?}");
+                        eprintln!("Error: I/O error opening {} at {}: {e:?}", format!("{source:?}").to_lowercase(), vf.path.display());
+                        eprintln!("Hint: Ensure the binary has read access — try 'sudo ./cap.sh', check permissions, or run with sudo.");
+                        eprintln!("Details: {e:?}");
                         exit(2);
                     }
                 }
@@ -761,7 +787,9 @@ fn print_raw_file<T>(
                 match p.try_iter(&vf.path) {
                     Ok(it) => it,
                     Err(e) => {
-                        eprintln!("Error: Cannot open wtmp file: {e:?}");
+                        eprintln!("Error: I/O error opening wtmp at {}: {e:?}", vf.path.display());
+                        eprintln!("Hint: Check /var/log/wtmp exists and has read access — try 'sudo ./cap.sh'.");
+                        eprintln!("Details: {e:?}");
                         exit(2);
                     }
                 }
@@ -979,7 +1007,9 @@ fn print_raw_journal(
     if let Some(filters) = row_filters
         && let Err(e) = validate_row_columns::<JournalRecord>(filters)
     {
-        eprintln!("Error: Invalid --rows filter: {e}");
+        eprintln!("Error: Invalid --rows filter for journal: {e}");
+        eprintln!("Hint: Use -F col=value — e.g. -F systemd_unit=sshd.service. Check --list-columns for journal (scope={scope:?}).");
+        eprintln!("Details: {e}");
         exit(2);
     }
 
@@ -990,7 +1020,9 @@ fn print_raw_journal(
     let mut journal = match jlog.connect(scope.clone()) {
         Ok(j) => j,
         Err(e) => {
-            eprintln!("Error: Cannot retrieve information from the journal.\nDetails: {e:#?}");
+            eprintln!("Error: Cannot retrieve entries from journal (scope={scope:?}) — journal unavailable or no permission.");
+            eprintln!("Hint: Check that systemd-journald is running, try --scope user vs --scope system, and ensure read access — try 'sudo ./cap.sh' or 'journalctl --verify'.");
+            eprintln!("Details: {e:#?}");
             exit(2);
         }
     };
@@ -1001,7 +1033,9 @@ fn print_raw_journal(
     let iter = match jlog.try_iter(&mut journal, lines_for_iter, since_usec, until_usec) {
         Ok(it) => it,
         Err(e) => {
-            eprintln!("Error: Cannot read journal: {e:#?}");
+            eprintln!("Error: Cannot read journal (scope={scope:?}) at realtime {}: {e:#?}", since_usec.map(|u| u.to_string()).unwrap_or_else(|| "tail".to_string()));
+            eprintln!("Hint: Try without --since/--until, check journalctl, or try --scope system vs user.");
+            eprintln!("Details: {e:#?}");
             exit(2);
         }
     };
