@@ -70,17 +70,44 @@ fn build_table_with<T: TableDisplay>(
     let mut table = comfy_table::Table::new();
     table
         .load_style(style)
-        .set_content_arrangement(ContentArrangement::Dynamic)
+        // `Dynamic` inserts `\n` inside words to fit terminal width and breaks
+        // `--search` grep (e.g. `message` split over two lines). Use `Disabled`
+        // and rely on `truncate_content` for `compact`; `standard`/`summary` also
+        // truncate to a sane default to avoid consuming the whole terminal.
+        .set_content_arrangement(ContentArrangement::Disabled)
         .enforce_styling()
         .set_header(headers);
+
+    // `search`/`rows` filtering happens before `build_table_with` on `T::fields()`
+    // (see `src/cli.rs:645`), so `truncate_content` here only affects display —
+    // the literal text is removed from the table but not from filtering. To keep
+    // grep-friendly output use `--raw` (tab-separated, no wrapping/truncation).
+    let effective_width = max_col_width;
+    // For `standard`/`summary` without explicit `max_col_width`, truncate long
+    // fields to 60 chars by default to avoid a 27-column journal table spilling
+    // over the terminal. This is smaller than `Disabled` would otherwise render
+    // (full width) and keeps the table readable. Search still matches the
+    // original untruncated fields.
+    let default_truncate: Option<usize> = if effective_width.is_none() {
+        Some(60)
+    } else {
+        None
+    };
 
     for row in rows {
         let fields = row.fields();
         let cells: Vec<String> = col_map
             .iter()
             .map(|&i| {
-                if let Some(max_width) = max_col_width {
-                    truncate_content(&fields[i], max_width)
+                if let Some(w) = effective_width {
+                    truncate_content(&fields[i], w)
+                } else if let Some(def) = default_truncate {
+                    // Only truncate if field exceeds default; keep short fields intact
+                    if fields[i].chars().count() > def {
+                        truncate_content(&fields[i], def)
+                    } else {
+                        fields[i].clone()
+                    }
                 } else {
                     fields[i].clone()
                 }
@@ -89,11 +116,20 @@ fn build_table_with<T: TableDisplay>(
         table.add_row(cells);
     }
 
-    if let Some(width) = max_col_width {
+    if let Some(width) = effective_width {
         let constraints: Vec<_> = (0..table.column_count())
             .map(|_| {
                 comfy_table::ColumnConstraint::UpperBoundary(comfy_table::Width::Fixed(
                     width as u16,
+                ))
+            })
+            .collect();
+        table.set_constraints(constraints);
+    } else if let Some(def) = default_truncate {
+        let constraints: Vec<_> = (0..table.column_count())
+            .map(|_| {
+                comfy_table::ColumnConstraint::UpperBoundary(comfy_table::Width::Fixed(
+                    def as u16,
                 ))
             })
             .collect();
@@ -194,14 +230,32 @@ pub fn build_journal_table<T: TableDisplay + FromLogEntry>(
         return Some(render_key_value(rows, hide_columns.as_deref()));
     }
 
-    let keep_columns = hide_columns.as_ref().map(|h| {
-        (0..headers.len())
-            .filter(|i| !h.contains(i))
-            .collect::<Vec<usize>>()
-    });
-    let max_col_width = match mode {
-        TableMode::Compact { max_col_width } => Some(*max_col_width),
-        _ => None,
+    let (keep_columns, max_col_width) = match mode {
+        TableMode::Summary { columns } => {
+            // Summary explicitly requests columns — show exactly what was requested,
+            // even if some are kernel cols hidden for system standard view.
+            let keep = column_indices(&headers, columns);
+            let keep_opt = if keep.is_empty() { None } else { Some(keep) };
+            (keep_opt, None)
+        }
+        TableMode::Compact { max_col_width } => {
+            let keep = hide_columns.as_ref().map(|h| {
+                (0..headers.len())
+                    .filter(|i| !h.contains(i))
+                    .collect::<Vec<usize>>()
+            });
+            (keep, Some(*max_col_width))
+        }
+        TableMode::Standard => {
+            let keep = hide_columns.as_ref().map(|h| {
+                (0..headers.len())
+                    .filter(|i| !h.contains(i))
+                    .collect::<Vec<usize>>()
+            });
+            (keep, None)
+        }
+        TableMode::KeyValue => unreachable!(),
+        TableMode::Raw => unreachable!(),
     };
     Some(build_table_with(
         &rows,

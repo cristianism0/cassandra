@@ -19,7 +19,7 @@ use crate::parsers::{
 use crate::models::{
     Finfo, FromLogEntry, LogSource, SOURCES, SourceCandidate,
     auth::AuthRecord,
-    journal::{JournalRecord, JournalScope},
+    journal::{JournalRecord, JournalScope, JOURNAL_KERNEL_COL},
     sys::SysRecord,
     wtmp::WtmpRecord,
 };
@@ -78,13 +78,8 @@ struct ArgsC {
     rows: Option<Vec<String>>,
     #[arg(short, long, global = true, help = "Limit to last N lines")]
     lines: Option<u64>,
-    #[arg(
-        short,
-        long,
-        global = true,
-        help = "Reverse output order — newest first"
-    )]
-    reverse: Option<bool>,
+    #[arg(short, long, global = true, help = "Reverse output order — newest first")]
+    reverse: bool,
     #[arg(long, global = true, help = "Regex search across all fields — e.g. --search 'error|failed'")]
     search: Option<String>,
     #[arg(long, global = true, help = "Show entries since time — e.g. --since '2024-01-01', '15 days ago', '2h ago', 'now-2h', 'today', 'yesterday' (UTC)")]
@@ -166,7 +161,7 @@ pub fn run_cli() {
     };
 
     let tmode = args.table_mode();
-    let revs = args.reverse.unwrap_or(false);
+    let revs = args.reverse;
 
     let search_re = match &args.search {
         Some(pat) => match Regex::new(pat) {
@@ -313,7 +308,24 @@ pub fn run_cli() {
         }
         LogKey::Journal { scope, gravity, list_columns } => {
             if list_columns {
-                print_list_columns::<JournalRecord>();
+                match scope {
+                    JournalScope::System => {
+                        // System scope hides kernel columns (hostname etc) — list only visible ones
+                        let headers = JournalRecord::headers();
+                        for h in headers {
+                            if !JOURNAL_KERNEL_COL
+                                .iter()
+                                .any(|c| c.eq_ignore_ascii_case(h))
+                            {
+                                println!("{h}");
+                            }
+                        }
+                        std::process::exit(0);
+                    }
+                    JournalScope::User => {
+                        print_list_columns::<JournalRecord>();
+                    }
+                }
             }
             let since_usec = since_dt.as_ref().map(|dt| datetime_to_micros(*dt));
             let until_usec = until_dt.as_ref().map(|dt| datetime_to_micros(*dt));
@@ -1214,7 +1226,7 @@ mod tests {
             raw: false,
             rows: None,
             lines: None,
-            reverse: None,
+            reverse: false,
             search: None,
             since: None,
             until: None,
