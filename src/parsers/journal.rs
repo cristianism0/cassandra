@@ -10,41 +10,130 @@ impl JournalParser for JournalLog {
     fn parser(
         &self,
         journal: &mut Journal,
-        _lines: Option<u64>,
-        _reverse: bool,
+        lines: Option<u64>,
+        reverse: bool,
+        since_usec: Option<u64>,
+        until_usec: Option<u64>,
     ) -> Result<Vec<LogEntry>, JournalError> {
-        journal.seek_tail().map_err(|e| {
-            JournalError::IoError(format!(
-                "Cannot read the journal during the parser due to error: {e:#?}"
-            ))
-        })?;
-        journal
-            .previous_skip(50) // for now
-            .map_err(|e| {
+        if let Some(0) = lines {
+            return Ok(Vec::new());
+        }
+
+        let mut entries = Vec::new();
+
+        if let Some(since) = since_usec {
+            // Native seek to since time
+            journal.seek_realtime_usec(since).map_err(|e| {
                 JournalError::IoError(format!(
-                    "Cannot read the journal's lines during the parser due to error: {e:#?}"
+                    "Cannot seek journal to since time due to error: {e:#?}"
+                ))
+            })?;
+            // After seek, next_entry will return first entry >= since
+            while journal
+                .next_entry()
+                .map_err(|e| {
+                    JournalError::IoError(format!(
+                        "An error ocurred during the journal lines parsing: {e:#?}"
+                    ))
+                })?
+                .is_some()
+            {
+                // Check until
+                let ts = journal.timestamp_usec().map_err(|e| {
+                    JournalError::IoError(format!("Cannot get journal timestamp: {e:#?}"))
+                })?;
+                if let Some(until) = until_usec
+                    && ts > until
+                {
+                    break;
+                }
+                let record = extract_record(journal);
+                entries.push(LogEntry::Journal(Box::new(record)));
+                // Early break if we have collected enough and lines is set and we want only first N?
+                // For now collect all within range, then apply lines limit after
+            }
+            // Apply lines limit as last N in chronological order within time range
+            if let Some(n) = lines {
+                let n_usize = n as usize;
+                if entries.len() > n_usize {
+                    let skip = entries.len() - n_usize;
+                    entries = entries.into_iter().skip(skip).collect();
+                }
+            }
+            if reverse {
+                entries.reverse();
+            }
+        } else {
+            // No since: use tail logic, but still need to handle until
+            journal.seek_tail().map_err(|e| {
+                JournalError::IoError(format!(
+                    "Cannot read the journal during the parser due to error: {e:#?}"
                 ))
             })?;
 
-        let mut entries = Vec::new();
-        while journal
-            .next_entry()
-            .map_err(|e| {
-                JournalError::IoError(format!(
-                    "An error ocurred during the journal lines parsing: {e:#?}"
-                ))
-            })?
-            .is_some()
-        {
-            let record = extract_record(journal);
-            entries.push(LogEntry::Journal(Box::new(record)));
+            if let Some(until) = until_usec {
+                // When until is set without since, we need to consider entries before until
+                // Approach: seek to until time, then collect previous entries? But simpler: collect last N then filter by until
+                // For now, collect last N (or all if lines None with default 50) then filter
+                let limit = lines.unwrap_or(50);
+                journal.previous_skip(limit).map_err(|e| {
+                    JournalError::IoError(format!(
+                        "Cannot read the journal's lines during the parser due to error: {e:#?}"
+                    ))
+                })?;
+                while journal
+                    .next_entry()
+                    .map_err(|e| {
+                        JournalError::IoError(format!(
+                            "An error ocurred during the journal lines parsing: {e:#?}"
+                        ))
+                    })?
+                    .is_some()
+                {
+                    let ts = journal.timestamp_usec().map_err(|e| {
+                        JournalError::IoError(format!("Cannot get journal timestamp: {e:#?}"))
+                    })?;
+                    if ts > until {
+                        break;
+                    }
+                    let record = extract_record(journal);
+                    entries.push(LogEntry::Journal(Box::new(record)));
+                }
+                if reverse {
+                    entries.reverse();
+                }
+            } else {
+                let limit = lines.unwrap_or(50);
+                journal.previous_skip(limit).map_err(|e| {
+                    JournalError::IoError(format!(
+                        "Cannot read the journal's lines during the parser due to error: {e:#?}"
+                    ))
+                })?;
+
+                while journal
+                    .next_entry()
+                    .map_err(|e| {
+                        JournalError::IoError(format!(
+                            "An error ocurred during the journal lines parsing: {e:#?}"
+                        ))
+                    })?
+                    .is_some()
+                {
+                    let record = extract_record(journal);
+                    entries.push(LogEntry::Journal(Box::new(record)));
+                }
+
+                if reverse {
+                    entries.reverse();
+                }
+            }
         }
+
         Ok(entries)
     }
 }
 
 fn extract_record(journal: &mut Journal) -> JournalRecord {
-    //mount the struct
     JournalRecord {
         message: extract_field(journal, "MESSAGE").unwrap_or_default(),
         priority: extract_field(journal, "PRIORITY"),

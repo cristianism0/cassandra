@@ -1,4 +1,6 @@
+use chrono::{DateTime, TimeZone, Utc};
 use clap::{Parser, Subcommand, ValueEnum};
+use regex::Regex;
 use std::process::exit;
 
 use crate::display::{
@@ -19,6 +21,8 @@ use crate::models::{
     sys::SysRecord,
     wtmp::WtmpRecord,
 };
+
+use crate::utils::time::{datetime_to_micros, parse_human_time, rfc3164_to_datetime};
 
 #[derive(Parser, Debug)]
 #[command(version, about, styles=rose_pine_moon())]
@@ -56,14 +60,13 @@ struct ArgsC {
     )]
     standard: bool,
 
-    // TODO: still to wire -> rows, gravity, search
-    // #[arg(
-    //     long,
-    //     value_delimiter = ',',
-    //     global = true,
-    //     help = "Filter rows by column=value — e.g. --rows host=myhost,process=sshd (not yet wired)"
-    // )]
-    // rows: Option<Vec<String>>,
+    #[arg(
+        long,
+        value_delimiter = ',',
+        global = true,
+        help = "Filter rows by column=value — e.g. --rows host=myhost,process=sshd"
+    )]
+    rows: Option<Vec<String>>,
     #[arg(short, long, global = true, help = "Limit to last N lines")]
     lines: Option<u64>,
     #[arg(
@@ -73,16 +76,12 @@ struct ArgsC {
         help = "Reverse output order — newest first"
     )]
     reverse: Option<bool>,
-    // #[arg(long, global = true, help = "Substring filter (not yet wired)")]
-    // search: Option<String>,
-    // TODO: chrono like system for all parsers — common filter e.g. "15 days ago", "2024-01-01", "now-2h"
-    // Parse with humantime/chrono -> SystemTime, then filter sys/auth by timestamp
-    // and journal via seek_realtime_usec. Lazy to TUI: tokio stream + mpsc, render windowed.
-
-    // #[arg(long, global=true, help = "Show entries since time — e.g. --since '15 days ago'")]
-    // since: Option<String>,
-    // #[arg(long, global=true, help = "Show entries until time")]
-    // until: Option<String>,
+    #[arg(long, global = true, help = "Regex search across all fields — e.g. --search 'error|failed'")]
+    search: Option<String>,
+    #[arg(long, global = true, help = "Show entries since time — e.g. --since '2024-01-01', '15 days ago', '2h ago', 'now-2h', 'today', 'yesterday' (UTC)")]
+    since: Option<String>,
+    #[arg(long, global = true, help = "Show entries until time — e.g. --until '2024-01-01' (UTC)")]
+    until: Option<String>,
     #[command(subcommand)]
     log: LogKey,
 }
@@ -90,23 +89,28 @@ struct ArgsC {
 #[derive(Subcommand, Debug, PartialEq, Eq, Hash, Clone)]
 enum LogKey {
     #[command(about = "System log — /var/log/messages or /var/log/syslog")]
-    Sys,
+    Sys {
+        #[arg(long, help = "List available columns for this source and exit")]
+        list_columns: bool,
+    },
     #[command(about = "Auth log — /var/log/secure or /var/log/auth.log")]
-    Auth,
+    Auth {
+        #[arg(long, help = "List available columns for this source and exit")]
+        list_columns: bool,
+    },
     #[command(about = "Wtmp — /var/log/wtmp (utmp)")]
-    Wtmp,
+    Wtmp {
+        #[arg(long, help = "List available columns for this source and exit")]
+        list_columns: bool,
+    },
     #[command(about = "Systemd journal — via sd-journal")]
     Journal {
         #[arg(long, default_value = "user", help = "Journal scope — system or user")]
         scope: JournalScope,
-        // TODO: still to wire
-        // #[arg(
-        //     short,
-        //     long,
-        //     global = true,
-        //     help = "Filter by gravity — critical/low/medium (maps to priority)"
-        // )]
-        // gravity: Option<GravityArgs>,
+        #[arg(long, value_enum, help = "Filter by gravity — critical, medium, low (maps to priority)")]
+        gravity: Option<GravityArgs>,
+        #[arg(long, help = "List available columns for this source and exit")]
+        list_columns: bool,
     },
 }
 
@@ -130,7 +134,6 @@ impl ArgsC {
         } else if self.key.is_some() {
             TableMode::KeyValue
         }
-        // No need to Some() here since else is triggered on fallback
         else {
             TableMode::Standard
         }
@@ -153,23 +156,92 @@ pub fn run_cli() {
     };
 
     let tmode = args.table_mode();
-
     let revs = args.reverse.unwrap_or(false);
 
-    // TODO: still to wire -> rows, gravity, search
+    let search_re = match &args.search {
+        Some(pat) => match Regex::new(pat) {
+            Ok(re) => Some(re),
+            Err(e) => {
+                eprintln!("Error: Invalid search regex '{pat}': {e}");
+                exit(2);
+            }
+        },
+        None => None,
+    };
+
+    let row_filters: Option<Vec<(String, String)>> = match &args.rows {
+        Some(raw) => match parse_row_filters(raw) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                eprintln!("Error: Invalid --rows filter: {e}");
+                eprintln!("Hint: Use --rows col=value[,col2=value2] — e.g. --rows host=myhost,process=sshd");
+                exit(2);
+            }
+        },
+        None => None,
+    };
+
+    let since_dt: Option<DateTime<Utc>> = match &args.since {
+        Some(s) => match parse_human_time(s) {
+            Ok(dt) => Some(dt),
+            Err(e) => {
+                eprintln!("Error: Invalid --since '{s}': {e}");
+                exit(2);
+            }
+        },
+        None => None,
+    };
+    let until_dt: Option<DateTime<Utc>> = match &args.until {
+        Some(s) => match parse_human_time(s) {
+            Ok(dt) => Some(dt),
+            Err(e) => {
+                eprintln!("Error: Invalid --until '{s}': {e}");
+                exit(2);
+            }
+        },
+        None => None,
+    };
+    if let (Some(since), Some(until)) = (&since_dt, &until_dt)
+        && since > until
+    {
+        eprintln!("Error: --since time is after --until time");
+        exit(2);
+    }
+
+    let is_wtmp = matches!(args.log, LogKey::Wtmp { .. });
+    if is_wtmp && (since_dt.is_some() || until_dt.is_some()) {
+        // ignore for wtmp as requested
+    }
 
     match args.log {
-        LogKey::Sys => {
-            print_table::<SysRecord>(&tmode, LogSource::Sys, l, revs);
+        LogKey::Sys { list_columns } => {
+            if list_columns {
+                print_list_columns::<SysRecord>();
+            }
+            // For time-filtered file logs, fetch all then filter, then apply lines
+            let lines_for_parser = if since_dt.is_some() || until_dt.is_some() { None } else { l };
+            print_table::<SysRecord>(&tmode, LogSource::Sys, lines_for_parser, l, revs, search_re.as_ref(), row_filters.as_deref(), since_dt.as_ref(), until_dt.as_ref());
         }
-        LogKey::Auth => {
-            print_table::<AuthRecord>(&tmode, LogSource::Auth, l, revs);
+        LogKey::Auth { list_columns } => {
+            if list_columns {
+                print_list_columns::<AuthRecord>();
+            }
+            let lines_for_parser = if since_dt.is_some() || until_dt.is_some() { None } else { l };
+            print_table::<AuthRecord>(&tmode, LogSource::Auth, lines_for_parser, l, revs, search_re.as_ref(), row_filters.as_deref(), since_dt.as_ref(), until_dt.as_ref());
         }
-        LogKey::Wtmp => {
-            print_table::<WtmpRecord>(&tmode, LogSource::Wtmp, l, revs);
+        LogKey::Wtmp { list_columns } => {
+            if list_columns {
+                print_list_columns::<WtmpRecord>();
+            }
+            print_table::<WtmpRecord>(&tmode, LogSource::Wtmp, l, l, revs, search_re.as_ref(), row_filters.as_deref(), None, None);
         }
-        LogKey::Journal { scope, .. } => {
-            let j = match journal_parsed(scope, l, revs) {
+        LogKey::Journal { scope, gravity, list_columns } => {
+            if list_columns {
+                print_list_columns::<JournalRecord>();
+            }
+            let since_usec = since_dt.as_ref().map(|dt| datetime_to_micros(*dt));
+            let until_usec = until_dt.as_ref().map(|dt| datetime_to_micros(*dt));
+            let mut j = match journal_parsed(scope, l, revs, since_usec, until_usec) {
                 Ok(le) => le,
                 Err(e) => {
                     eprintln!(
@@ -178,6 +250,22 @@ pub fn run_cli() {
                     exit(2);
                 }
             };
+
+            if let Some(g) = gravity {
+                j = apply_gravity_filter(j, &g);
+            }
+            if let Some(filters) = row_filters.as_deref() {
+                let validated = validate_row_columns::<JournalRecord>(filters);
+                if let Err(e) = validated {
+                    eprintln!("Error: Invalid --rows filter: {e}");
+                    exit(2);
+                }
+                j = apply_rows_filter::<JournalRecord>(j, filters);
+            }
+            if let Some(re) = search_re.as_ref() {
+                j = apply_search_filter::<JournalRecord>(j, re);
+            }
+
             let table = build_journal_table::<JournalRecord>(&j, &scope, &tmode);
             println!(
                 "{}",
@@ -190,10 +278,235 @@ pub fn run_cli() {
     }
 }
 
-fn print_table<T>(mode: &TableMode, source: LogSource, lines: Option<u64>, reverse: bool)
+fn print_list_columns<T: TableDisplay>() -> ! {
+    for col in T::headers() {
+        println!("{col}");
+    }
+    exit(0);
+}
+
+fn parse_row_filters(raw: &[String]) -> Result<Vec<(String, String)>, String> {
+    let mut out = Vec::with_capacity(raw.len());
+    for s in raw {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            return Err("empty filter".to_string());
+        }
+        let (k, v) = trimmed.split_once('=').ok_or_else(|| format!("missing '=' in '{s}'"))?;
+        let k = k.trim();
+        let v = v.trim();
+        if k.is_empty() || v.is_empty() {
+            return Err(format!("empty column or value in '{s}'"));
+        }
+        out.push((k.to_string(), v.to_string()));
+    }
+    Ok(out)
+}
+
+fn validate_row_columns<T: TableDisplay>(filters: &[(String, String)]) -> Result<(), String> {
+    let headers = T::headers();
+    for (col, _) in filters {
+        if !headers.iter().any(|h| h.eq_ignore_ascii_case(col)) {
+            return Err(format!("unknown column '{col}' — available: {}", headers.join(", ")));
+        }
+    }
+    Ok(())
+}
+
+fn apply_rows_filter<T: TableDisplay + FromLogEntry>(
+    entries: Vec<crate::models::LogEntry>,
+    filters: &[(String, String)],
+) -> Vec<crate::models::LogEntry> {
+    if filters.is_empty() {
+        return entries;
+    }
+    let headers = T::headers();
+    let idx_vals: Vec<(usize, &String)> = filters
+        .iter()
+        .filter_map(|(col, val)| {
+            headers
+                .iter()
+                .position(|h| h.eq_ignore_ascii_case(col))
+                .map(|idx| (idx, val))
+        })
+        .collect();
+
+    entries
+        .into_iter()
+        .filter(|e| {
+            if let Some(r) = T::from_entry(e) {
+                let fields = r.fields();
+                idx_vals.iter().all(|(idx, val)| fields[*idx] == **val)
+            } else {
+                false
+            }
+        })
+        .collect()
+}
+
+fn apply_search_filter<T: TableDisplay + FromLogEntry>(
+    entries: Vec<crate::models::LogEntry>,
+    regex: &Regex,
+) -> Vec<crate::models::LogEntry> {
+    entries
+        .into_iter()
+        .filter(|e| {
+            if let Some(r) = T::from_entry(e) {
+                r.fields().iter().any(|f| regex.is_match(f))
+            } else {
+                false
+            }
+        })
+        .collect()
+}
+
+fn apply_gravity_filter(
+    entries: Vec<crate::models::LogEntry>,
+    gravity: &GravityArgs,
+) -> Vec<crate::models::LogEntry> {
+    entries
+        .into_iter()
+        .filter(|e| matches_gravity(e, gravity))
+        .collect()
+}
+
+fn matches_gravity(entry: &crate::models::LogEntry, gravity: &GravityArgs) -> bool {
+    let pri_opt = match entry {
+        crate::models::LogEntry::Journal(j) => j.priority.as_deref(),
+        crate::models::LogEntry::Sys(s) => s.priority.as_deref(),
+        crate::models::LogEntry::Auth(a) => a.priority.as_deref(),
+        crate::models::LogEntry::Wtmp(_) => return false,
+    };
+    let pri_str = match pri_opt {
+        Some(s) => s,
+        None => return false,
+    };
+    let pri: u8 = match pri_str.parse() {
+        Ok(n) => n,
+        Err(_) => return false,
+    };
+    match gravity {
+        GravityArgs::Critical => pri <= 3,
+        GravityArgs::Medium => (4..=5).contains(&pri),
+        GravityArgs::Low => (6..=7).contains(&pri),
+    }
+}
+
+fn apply_time_filter(
+    entries: Vec<crate::models::LogEntry>,
+    since: Option<&DateTime<Utc>>,
+    until: Option<&DateTime<Utc>>,
+) -> Vec<crate::models::LogEntry> {
+    apply_time_filter_with_now(entries, since, until, Utc::now())
+}
+
+fn apply_time_filter_with_now(
+    entries: Vec<crate::models::LogEntry>,
+    since: Option<&DateTime<Utc>>,
+    until: Option<&DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> Vec<crate::models::LogEntry> {
+    if since.is_none() && until.is_none() {
+        return entries;
+    }
+    entries
+        .into_iter()
+        .filter(|e| {
+            let dt_opt = match e {
+                crate::models::LogEntry::Sys(r) => rfc3164_to_datetime(&r.timestamp, now).ok(),
+                crate::models::LogEntry::Auth(r) => rfc3164_to_datetime(&r.timestamp, now).ok(),
+                crate::models::LogEntry::Journal(j) => {
+                    // Prefer source_realtime_timestamp, fallback to realtime timestamp from journal
+                    // source_realtime_timestamp is micros as string
+                    if let Some(ts) = &j.source_realtime_timestamp {
+                        if let Ok(micros) = ts.parse::<i64>() {
+                            Some(Utc.timestamp_micros(micros).single().expect("valid timestamp"))
+                        } else {
+                            None
+                        }
+                    } else if let Some(ts) = &j.source_boottime_timestamp {
+                        // fallback: try parse, though boottime is not wall clock
+                        if let Ok(micros) = ts.parse::<i64>() {
+                            Some(Utc.timestamp_micros(micros).single().expect("valid timestamp"))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                crate::models::LogEntry::Wtmp(_) => return true, // ignore for wtmp
+            };
+            if let Some(dt) = dt_opt {
+                if let Some(since_dt) = since
+                    && dt < *since_dt
+                {
+                    return false;
+                }
+                if let Some(until_dt) = until
+                    && dt > *until_dt
+                {
+                    return false;
+                }
+                true
+            } else {
+                // If timestamp missing or unparsable, keep only if no time filter? Actually filter out
+                // For journal, if no timestamp, we cannot filter, so keep? But safer to keep if no filter?
+                // Here we already have since/until, so if we cannot parse, exclude
+                false
+            }
+        })
+        .collect()
+}
+
+fn apply_lines_limit(
+    entries: Vec<crate::models::LogEntry>,
+    lines: Option<u64>,
+    reverse: bool,
+) -> Vec<crate::models::LogEntry> {
+    if let Some(n) = lines {
+        let n_usize = n as usize;
+        let len = entries.len();
+        if len <= n_usize {
+            if reverse {
+                let mut rev = entries;
+                rev.reverse();
+                return rev;
+            } else {
+                return entries;
+            }
+        }
+        if reverse {
+            // Newest first: take first n after reverse? But entries are chronological
+            // We want last n in reverse order
+            let mut filtered = entries;
+            filtered.reverse();
+            filtered.truncate(n_usize);
+            filtered
+        } else {
+            // Last n in chronological order
+            entries.into_iter().skip(len - n_usize).collect()
+        }
+    } else if reverse {
+        let mut rev = entries;
+        rev.reverse();
+        rev
+    } else {
+        entries
+    }
+}
+
+fn print_table<T>(mode: &TableMode, source: LogSource, lines_for_parser: Option<u64>, lines_outer: Option<u64>, reverse: bool, search_re: Option<&Regex>, row_filters: Option<&[(String, String)]>, since: Option<&DateTime<Utc>>, until: Option<&DateTime<Utc>>)
 where
     T: TableDisplay + FromLogEntry,
 {
+    if let Some(filters) = row_filters
+        && let Err(e) = validate_row_columns::<T>(filters)
+    {
+        eprintln!("Error: Invalid --rows filter: {e}");
+        exit(2);
+    }
+
     let ps = possible_paths(source);
     let vf = match filtered_finfo(ps) {
         Some(e) => e,
@@ -206,8 +519,10 @@ where
         }
     };
 
-    // TODO: still to wire in the parser -> rows, gravity enum
-    let ret = match parser_selector(&vf, lines, reverse) {
+    let has_time_filter = since.is_some() || until.is_some();
+    // When time filter is active, fetch all in chronological order and handle lines/reverse after filtering
+    let parser_reverse = if has_time_filter { false } else { reverse };
+    let mut ret = match parser_selector(&vf, lines_for_parser, parser_reverse) {
         Ok(e) => e,
         Err(e) => match e {
             ParseError::IoError(e) => {
@@ -230,6 +545,26 @@ where
             }
         },
     };
+
+    if has_time_filter {
+        ret = apply_time_filter(ret, since, until);
+    }
+
+    if let Some(filters) = row_filters {
+        ret = apply_rows_filter::<T>(ret, filters);
+    }
+    if let Some(re) = search_re {
+        ret = apply_search_filter::<T>(ret, re);
+    }
+
+    if has_time_filter {
+        ret = apply_lines_limit(ret, lines_outer, reverse);
+    }
+
+    // If we already handled lines for time-filtered case, skip; else lines was handled by parser, but we still need to handle search/rows after?
+    // For non-time case, lines already handled by parser, but search/rows may have reduced entries, we should not re-apply lines
+    // However if search/rows reduced, lines semantics of "last N" after filtering may be unexpected, but we keep parser's lines as is
+
     let table = match build_table::<T>(&ret, mode) {
         Some(e) => e,
         None => {
@@ -259,6 +594,8 @@ fn filtered_finfo(psc: Vec<&SourceCandidate>) -> Option<Finfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{LogEntry, journal::JournalRecord, sys::SysRecord};
+    use chrono::TimeZone;
 
     fn args(
         summary: Option<Vec<String>>,
@@ -271,9 +608,13 @@ mod tests {
             compact,
             key,
             standard,
+            rows: None,
             lines: None,
             reverse: None,
-            log: LogKey::Sys,
+            search: None,
+            since: None,
+            until: None,
+            log: LogKey::Sys { list_columns: false },
         }
     }
 
@@ -325,5 +666,275 @@ mod tests {
             path: "/definitely/missing/cassandra-test-cli.log",
         };
         assert!(filtered_finfo(vec![&missing]).is_none());
+    }
+
+    #[test]
+    fn parse_row_filters_ok() {
+        let raw = vec!["host=myhost".to_string(), "process=sshd".to_string()];
+        let got = parse_row_filters(&raw).expect("parse ok");
+        assert_eq!(got, vec![("host".to_string(), "myhost".to_string()), ("process".to_string(), "sshd".to_string())]);
+    }
+
+    #[test]
+    fn parse_row_filters_rejects_missing_eq() {
+        let raw = vec!["hostmyhost".to_string()];
+        assert!(parse_row_filters(&raw).is_err());
+    }
+
+    #[test]
+    fn parse_row_filters_rejects_empty() {
+        let raw = vec!["host=".to_string()];
+        assert!(parse_row_filters(&raw).is_err());
+    }
+
+    #[test]
+    fn validate_row_columns_ok_and_err() {
+        assert!(validate_row_columns::<SysRecord>(&[("host".to_string(), "x".to_string())]).is_ok());
+        assert!(validate_row_columns::<SysRecord>(&[("HOST".to_string(), "x".to_string())]).is_ok());
+        assert!(validate_row_columns::<SysRecord>(&[("nope".to_string(), "x".to_string())]).is_err());
+    }
+
+    #[test]
+    fn apply_rows_filter_keeps_matching() {
+        let entries = vec![
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "myhost".to_string(), process: "sshd".to_string(), message: "m1".to_string() }),
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "other".to_string(), process: "sshd".to_string(), message: "m2".to_string() }),
+        ];
+        let filters = vec![("host".to_string(), "myhost".to_string())];
+        let out = apply_rows_filter::<SysRecord>(entries, &filters);
+        assert_eq!(out.len(), 1);
+        match &out[0] {
+            LogEntry::Sys(r) => assert_eq!(r.host, "myhost"),
+            _ => panic!("wrong"),
+        }
+    }
+
+    #[test]
+    fn apply_search_filter_regex() {
+        let entries = vec![
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "h".to_string(), process: "p".to_string(), message: "error failed".to_string() }),
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "h".to_string(), process: "p".to_string(), message: "all good".to_string() }),
+        ];
+        let re = Regex::new("error").unwrap();
+        let out = apply_search_filter::<SysRecord>(entries, &re);
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn apply_search_filter_matches_any_field() {
+        let entries = vec![
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "myhost".to_string(), process: "p".to_string(), message: "m".to_string() }),
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "other".to_string(), process: "p".to_string(), message: "m".to_string() }),
+        ];
+        let re = Regex::new("myhost").unwrap();
+        let out = apply_search_filter::<SysRecord>(entries, &re);
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn gravity_filter_critical_keeps_low_priority_numbers() {
+        let entries = vec![
+            LogEntry::Journal(Box::new(JournalRecord { message: "m".to_string(), priority: Some("2".to_string()), code_file: None, code_func: None, code_line: None, syslog_facility: None, syslog_identifier: None, tid: None, audit_loginuid: None, audit_session: None, boot_id: None, gid: None, hostname: None, machine_id: None, pid: None, runtime_scope: None, selinux_context: None, source_monotonic_timestamp: None, source_boottime_timestamp: None, source_realtime_timestamp: None, systemd_cgroup: None, systemd_owner_uid: None, systemd_slice: None, systemd_unit: None, systemd_user_slice: None, transport: None, uid: None })),
+            LogEntry::Journal(Box::new(JournalRecord { message: "m".to_string(), priority: Some("6".to_string()), code_file: None, code_func: None, code_line: None, syslog_facility: None, syslog_identifier: None, tid: None, audit_loginuid: None, audit_session: None, boot_id: None, gid: None, hostname: None, machine_id: None, pid: None, runtime_scope: None, selinux_context: None, source_monotonic_timestamp: None, source_boottime_timestamp: None, source_realtime_timestamp: None, systemd_cgroup: None, systemd_owner_uid: None, systemd_slice: None, systemd_unit: None, systemd_user_slice: None, transport: None, uid: None })),
+        ];
+        let out = apply_gravity_filter(entries, &GravityArgs::Critical);
+        assert_eq!(out.len(), 1);
+        match &out[0] {
+            LogEntry::Journal(j) => assert_eq!(j.priority.as_deref(), Some("2")),
+            _ => panic!("wrong"),
+        }
+    }
+
+    #[test]
+    fn gravity_filter_none_priority_is_filtered_out() {
+        let entries = vec![
+            LogEntry::Journal(Box::new(JournalRecord { message: "m".to_string(), priority: None, code_file: None, code_func: None, code_line: None, syslog_facility: None, syslog_identifier: None, tid: None, audit_loginuid: None, audit_session: None, boot_id: None, gid: None, hostname: None, machine_id: None, pid: None, runtime_scope: None, selinux_context: None, source_monotonic_timestamp: None, source_boottime_timestamp: None, source_realtime_timestamp: None, systemd_cgroup: None, systemd_owner_uid: None, systemd_slice: None, systemd_unit: None, systemd_user_slice: None, transport: None, uid: None })),
+        ];
+        let out = apply_gravity_filter(entries, &GravityArgs::Low);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn parse_row_filters_trims_spaces() {
+        let raw = vec![" host = myhost ".to_string(), "process = sshd ".to_string()];
+        let got = parse_row_filters(&raw).expect("parse ok");
+        assert_eq!(got, vec![("host".to_string(), "myhost".to_string()), ("process".to_string(), "sshd".to_string())]);
+    }
+
+    #[test]
+    fn apply_rows_filter_multiple_and() {
+        let entries = vec![
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "myhost".to_string(), process: "sshd".to_string(), message: "m1".to_string() }),
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "myhost".to_string(), process: "cron".to_string(), message: "m2".to_string() }),
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "other".to_string(), process: "sshd".to_string(), message: "m3".to_string() }),
+        ];
+        let filters = vec![("host".to_string(), "myhost".to_string()), ("process".to_string(), "sshd".to_string())];
+        let out = apply_rows_filter::<SysRecord>(entries, &filters);
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn apply_rows_filter_case_insensitive_column() {
+        let entries = vec![
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "myhost".to_string(), process: "p".to_string(), message: "m".to_string() }),
+        ];
+        let filters = vec![("HOST".to_string(), "myhost".to_string())];
+        let out = apply_rows_filter::<SysRecord>(entries, &filters);
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn gravity_filter_medium_and_low() {
+        let mk = |p: &str| LogEntry::Journal(Box::new(JournalRecord { message: "m".to_string(), priority: Some(p.to_string()), code_file: None, code_func: None, code_line: None, syslog_facility: None, syslog_identifier: None, tid: None, audit_loginuid: None, audit_session: None, boot_id: None, gid: None, hostname: None, machine_id: None, pid: None, runtime_scope: None, selinux_context: None, source_monotonic_timestamp: None, source_boottime_timestamp: None, source_realtime_timestamp: None, systemd_cgroup: None, systemd_owner_uid: None, systemd_slice: None, systemd_unit: None, systemd_user_slice: None, transport: None, uid: None }));
+        let entries_med = vec![mk("4"), mk("5"), mk("6"), mk("7"), mk("2")];
+        let med = apply_gravity_filter(entries_med, &GravityArgs::Medium);
+        assert_eq!(med.len(), 2);
+        let entries_low = vec![mk("4"), mk("5"), mk("6"), mk("7"), mk("2")];
+        let low = apply_gravity_filter(entries_low, &GravityArgs::Low);
+        assert_eq!(low.len(), 2);
+    }
+
+    #[test]
+    fn apply_search_filter_wtmp() {
+        use crate::models::wtmp::WtmpRecord;
+        let entries = vec![
+            LogEntry::Wtmp(WtmpRecord { ut_type: 7, ut_pid: 1, ut_dname: "pts/0".to_string(), ut_id: "01".to_string(), ut_user: "alice".to_string(), ut_host: "myhost".to_string(), e_termination: 0, e_exit: 0 }),
+            LogEntry::Wtmp(WtmpRecord { ut_type: 7, ut_pid: 2, ut_dname: "pts/1".to_string(), ut_id: "02".to_string(), ut_user: "bob".to_string(), ut_host: "other".to_string(), e_termination: 0, e_exit: 0 }),
+        ];
+        let re = Regex::new("alice").unwrap();
+        let out = apply_search_filter::<WtmpRecord>(entries, &re);
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn apply_rows_filter_wtmp() {
+        use crate::models::wtmp::WtmpRecord;
+        let entries = vec![
+            LogEntry::Wtmp(WtmpRecord { ut_type: 7, ut_pid: 1, ut_dname: "pts/0".to_string(), ut_id: "01".to_string(), ut_user: "alice".to_string(), ut_host: "h1".to_string(), e_termination: 0, e_exit: 0 }),
+            LogEntry::Wtmp(WtmpRecord { ut_type: 7, ut_pid: 2, ut_dname: "pts/1".to_string(), ut_id: "02".to_string(), ut_user: "bob".to_string(), ut_host: "h2".to_string(), e_termination: 0, e_exit: 0 }),
+        ];
+        let filters = vec![("ut_user".to_string(), "bob".to_string())];
+        let out = apply_rows_filter::<WtmpRecord>(entries, &filters);
+        assert_eq!(out.len(), 1);
+        match &out[0] {
+            LogEntry::Wtmp(r) => assert_eq!(r.ut_user, "bob"),
+            _ => panic!("wrong"),
+        }
+    }
+
+    #[test]
+    fn apply_search_filter_regex_special() {
+        let entries = vec![
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "h".to_string(), process: "sshd".to_string(), message: "Failed password".to_string() }),
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "t".to_string(), host: "h".to_string(), process: "sshd".to_string(), message: "Accepted".to_string() }),
+        ];
+        let re = Regex::new("Failed.*password").unwrap();
+        let out = apply_search_filter::<SysRecord>(entries, &re);
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn apply_time_filter_sys_since_until() {
+        let entries = vec![
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 11 22:14:15".to_string(), host: "h".to_string(), process: "p".to_string(), message: "m1".to_string() }),
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 12 10:00:00".to_string(), host: "h".to_string(), process: "p".to_string(), message: "m2".to_string() }),
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 13 01:00:00".to_string(), host: "h".to_string(), process: "p".to_string(), message: "m3".to_string() }),
+        ];
+        let since = Utc.with_ymd_and_hms(2024, 10, 12, 0, 0, 0).unwrap();
+        let until = Utc.with_ymd_and_hms(2024, 10, 12, 23, 59, 59).unwrap();
+        // Use a fixed now for deterministic test: Oct 14 2024
+        // But apply_time_filter uses Utc::now() internally; for this test we check logic via direct comparison
+        // Instead test rfc3164 parsing and direct filter
+        let now = Utc.with_ymd_and_hms(2024, 10, 14, 0, 0, 0).unwrap();
+        // Simulate filter manually
+        let filtered: Vec<_> = entries.into_iter().filter(|e| {
+            if let crate::models::LogEntry::Sys(r) = e {
+                if let Ok(dt) = rfc3164_to_datetime(&r.timestamp, now) {
+                    dt >= since && dt <= until
+                } else { false }
+            } else { false }
+        }).collect();
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn apply_lines_limit_keeps_last_n() {
+        let entries = vec![
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 11 22:14:15".to_string(), host: "h".to_string(), process: "p".to_string(), message: "1".to_string() }),
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 11 22:14:16".to_string(), host: "h".to_string(), process: "p".to_string(), message: "2".to_string() }),
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 11 22:14:17".to_string(), host: "h".to_string(), process: "p".to_string(), message: "3".to_string() }),
+        ];
+        let out = apply_lines_limit(entries, Some(2), false);
+        assert_eq!(out.len(), 2);
+        match (&out[0], &out[1]) {
+            (LogEntry::Sys(a), LogEntry::Sys(b)) => {
+                assert_eq!(a.message, "2");
+                assert_eq!(b.message, "3");
+            }
+            _ => panic!("wrong"),
+        }
+    }
+
+    #[test]
+    fn apply_lines_limit_reverse() {
+        let entries = vec![
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 11 22:14:15".to_string(), host: "h".to_string(), process: "p".to_string(), message: "1".to_string() }),
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 11 22:14:16".to_string(), host: "h".to_string(), process: "p".to_string(), message: "2".to_string() }),
+        ];
+        let out = apply_lines_limit(entries, Some(2), true);
+        assert_eq!(out.len(), 2);
+        match (&out[0], &out[1]) {
+            (LogEntry::Sys(a), LogEntry::Sys(b)) => {
+                assert_eq!(a.message, "2");
+                assert_eq!(b.message, "1");
+            }
+            _ => panic!("wrong"),
+        }
+    }
+
+    #[test]
+    fn apply_time_filter_with_fixed_now() {
+        let entries = vec![
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 11 22:14:15".to_string(), host: "h".to_string(), process: "p".to_string(), message: "m1".to_string() }),
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 12 10:00:00".to_string(), host: "h".to_string(), process: "p".to_string(), message: "m2".to_string() }),
+            LogEntry::Sys(SysRecord { priority: None, timestamp: "Oct 13 01:00:00".to_string(), host: "h".to_string(), process: "p".to_string(), message: "m3".to_string() }),
+        ];
+        let since = Utc.with_ymd_and_hms(2024, 10, 12, 0, 0, 0).unwrap();
+        let until = Utc.with_ymd_and_hms(2024, 10, 12, 23, 59, 59).unwrap();
+        let now = Utc.with_ymd_and_hms(2024, 10, 14, 0, 0, 0).unwrap();
+        let out = apply_time_filter_with_now(entries, Some(&since), Some(&until), now);
+        assert_eq!(out.len(), 1);
+        match &out[0] {
+            LogEntry::Sys(r) => assert_eq!(r.message, "m2"),
+            _ => panic!("wrong"),
+        }
+    }
+
+    #[test]
+    fn apply_time_filter_journal() {
+        // Journal timestamp is micros string; use a known micros for 2024-10-12
+        let micros = Utc.with_ymd_and_hms(2024, 10, 12, 10, 0, 0).unwrap().timestamp_micros();
+        let entries = vec![
+            LogEntry::Journal(Box::new(JournalRecord { message: "m1".to_string(), priority: None, code_file: None, code_func: None, code_line: None, syslog_facility: None, syslog_identifier: None, tid: None, audit_loginuid: None, audit_session: None, boot_id: None, gid: None, hostname: None, machine_id: None, pid: None, runtime_scope: None, selinux_context: None, source_monotonic_timestamp: None, source_boottime_timestamp: None, source_realtime_timestamp: Some((micros - 1_000_000).to_string()), systemd_cgroup: None, systemd_owner_uid: None, systemd_slice: None, systemd_unit: None, systemd_user_slice: None, transport: None, uid: None })),
+            LogEntry::Journal(Box::new(JournalRecord { message: "m2".to_string(), priority: None, code_file: None, code_func: None, code_line: None, syslog_facility: None, syslog_identifier: None, tid: None, audit_loginuid: None, audit_session: None, boot_id: None, gid: None, hostname: None, machine_id: None, pid: None, runtime_scope: None, selinux_context: None, source_monotonic_timestamp: None, source_boottime_timestamp: None, source_realtime_timestamp: Some(micros.to_string()), systemd_cgroup: None, systemd_owner_uid: None, systemd_slice: None, systemd_unit: None, systemd_user_slice: None, transport: None, uid: None })),
+            LogEntry::Journal(Box::new(JournalRecord { message: "m3".to_string(), priority: None, code_file: None, code_func: None, code_line: None, syslog_facility: None, syslog_identifier: None, tid: None, audit_loginuid: None, audit_session: None, boot_id: None, gid: None, hostname: None, machine_id: None, pid: None, runtime_scope: None, selinux_context: None, source_monotonic_timestamp: None, source_boottime_timestamp: None, source_realtime_timestamp: Some((micros + 7_200_000_000).to_string()), systemd_cgroup: None, systemd_owner_uid: None, systemd_slice: None, systemd_unit: None, systemd_user_slice: None, transport: None, uid: None })),
+        ];
+        let since = Utc.with_ymd_and_hms(2024, 10, 12, 9, 0, 0).unwrap();
+        let until = Utc.with_ymd_and_hms(2024, 10, 12, 11, 0, 0).unwrap();
+        let now = Utc.with_ymd_and_hms(2024, 10, 14, 0, 0, 0).unwrap();
+        let out = apply_time_filter_with_now(entries, Some(&since), Some(&until), now);
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn apply_time_filter_wtmp_ignores() {
+        use crate::models::wtmp::WtmpRecord;
+        let entries = vec![
+            LogEntry::Wtmp(WtmpRecord { ut_type: 7, ut_pid: 1, ut_dname: "pts/0".to_string(), ut_id: "01".to_string(), ut_user: "alice".to_string(), ut_host: "h".to_string(), e_termination: 0, e_exit: 0 }),
+        ];
+        let since = Utc.with_ymd_and_hms(2024, 10, 12, 0, 0, 0).unwrap();
+        let now = Utc.with_ymd_and_hms(2024, 10, 14, 0, 0, 0).unwrap();
+        let out = apply_time_filter_with_now(entries, Some(&since), None, now);
+        assert_eq!(out.len(), 1);
     }
 }

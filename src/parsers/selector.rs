@@ -48,10 +48,12 @@ pub fn journal_parsed(
     journal_scope: JournalScope,
     lines: Option<u64>,
     reverse: bool,
+    since_usec: Option<u64>,
+    until_usec: Option<u64>,
 ) -> Result<Vec<LogEntry>, JournalError> {
     let j = JournalLog;
     let mut jc = j.connect(journal_scope)?;
-    let jentry = j.parser(&mut jc, lines, reverse)?;
+    let jentry = j.parser(&mut jc, lines, reverse, since_usec, until_usec)?;
     Ok(jentry)
 }
 
@@ -119,6 +121,8 @@ pub trait JournalParser {
         journal: &mut Journal,
         lines: Option<u64>,
         reverse: bool,
+        since_usec: Option<u64>,
+        until_usec: Option<u64>,
     ) -> Result<Vec<LogEntry>, JournalError>;
 }
 
