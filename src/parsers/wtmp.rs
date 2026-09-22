@@ -124,6 +124,7 @@ mod tests {
         p
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn make_record(
         ut_type: i16,
         ut_pid: i32,
