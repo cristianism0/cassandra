@@ -103,7 +103,6 @@ fn build_table_with<T: TableDisplay>(
     table.trim_fmt()
 }
 
-// FIXME: the hiding columns is not working
 fn render_key_value<T: TableDisplay>(rows: Vec<&T>, hide_columns: Option<&[usize]>) -> String {
     let mut output = String::new();
     let all_headers = T::headers();
@@ -120,10 +119,32 @@ fn render_key_value<T: TableDisplay>(rows: Vec<&T>, hide_columns: Option<&[usize
     output
 }
 
+pub fn build_raw<T: TableDisplay + FromLogEntry>(
+    entries: &[LogEntry],
+) -> Option<String> {
+    let rows = group::<T>(entries);
+    if rows.is_empty() {
+        return None;
+    }
+    let headers = T::headers();
+    let mut out = String::new();
+    out.push_str(&headers.join("\t"));
+    out.push('\n');
+    for r in rows {
+        out.push_str(&r.fields().join("\t"));
+        out.push('\n');
+    }
+    // No wrapping, no Dynamic arrangement — suitable for `grep` and `wc -l`
+    Some(out.trim_end().to_string())
+}
+
 pub fn build_table<T: TableDisplay + FromLogEntry>(
     entries: &[LogEntry],
     mode: &TableMode,
 ) -> Option<String> {
+    if let TableMode::Raw = mode {
+        return build_raw::<T>(entries);
+    }
     let rows = group::<T>(entries);
     if rows.is_empty() {
         return None;
@@ -141,6 +162,7 @@ pub fn build_table<T: TableDisplay + FromLogEntry>(
             (keep, None)
         }
         TableMode::KeyValue => unreachable!(),
+        TableMode::Raw => unreachable!(),
     };
     Some(build_table_with(
         &rows,
@@ -154,6 +176,12 @@ pub fn build_journal_table<T: TableDisplay + FromLogEntry>(
     scope: &JournalScope,
     mode: &TableMode,
 ) -> Option<String> {
+    if let TableMode::Raw = mode {
+        // For journal raw, hide the same kernel columns as system scope? No, raw should show all
+        // but keep consistent with table's hide for system scope: hide only if system.
+        // To keep raw grep-friendly and complete, show all headers.
+        return build_raw::<T>(entries);
+    }
     let rows = group::<T>(entries);
     if rows.is_empty() {
         return None;

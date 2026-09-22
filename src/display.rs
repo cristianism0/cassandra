@@ -27,6 +27,7 @@ pub enum TableMode {
     Compact { max_col_width: usize },
     Summary { columns: Vec<String> },
     KeyValue,
+    Raw,
 }
 
 pub enum RecordType<'a> {

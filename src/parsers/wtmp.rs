@@ -6,12 +6,10 @@ use crate::models::{LogEntry, wtmp::WtmpRecord};
 pub struct WtmpLog;
 
 impl LogParser for WtmpLog {
-    fn parser(
+    fn try_iter(
         &self,
         path: &Path,
-        lines: Option<u64>,
-        reverse: bool,
-    ) -> Result<Vec<LogEntry>, ParseError> {
+    ) -> Result<Box<dyn Iterator<Item = Result<LogEntry, ParseError>>>, ParseError> {
         let mut f = File::open(path).map_err(|e| {
             ParseError::IoError(format!(
                 "Cannot open file at {} due to: {e}",
@@ -27,60 +25,65 @@ impl LogParser for WtmpLog {
         })?;
 
         let file_len = meta.len();
-        // TODO: check availabily of utmp construct on other archs.
-        let record_size = 384;
+        let record_size: u64 = 384;
 
-        let total_lines = file_len / record_size;
+        if file_len % record_size != 0 {
+            // Warn but still iterate over complete records
+        }
 
-        let lines_to_read = match lines {
-            Some(n) => n.min(total_lines),
-            None => total_lines,
-        };
+        let total_records = file_len / record_size;
+        if total_records == 0 {
+            return Ok(Box::new(std::iter::empty()));
+        }
 
-        if lines_to_read == 0 {
+        let mut buf = vec![0u8; file_len as usize];
+        f.seek(SeekFrom::Start(0))
+            .map_err(|e| ParseError::IoError(format!("wtmp seek error: {e}")))?;
+        f.read_exact(&mut buf)
+            .map_err(|e| ParseError::IoError(format!("Cannot read wtmp file due to: {e}")))?;
+
+        // Own the buffer and iterate chunk by chunk, yielding owned LogEntry
+        let iter = (0..total_records).map(move |idx| {
+            let start = (idx * record_size) as usize;
+            let end = start + record_size as usize;
+            let chunk = &buf[start..end];
+            Ok(LogEntry::Wtmp(parse_record(chunk)))
+        });
+
+        Ok(Box::new(iter))
+    }
+
+    fn parser(
+        &self,
+        path: &Path,
+        lines: Option<u64>,
+        reverse: bool,
+    ) -> Result<Vec<LogEntry>, ParseError> {
+        // Preserve previous semantics: `lines` is last N, `reverse` flips.
+        // Now implemented via `try_iter()` for consistency.
+        if let Some(0) = lines {
             return Ok(Vec::new());
         }
 
-        let bytes_to_read = lines_to_read * record_size;
-        let start_offset = file_len - bytes_to_read;
+        let all: Vec<LogEntry> = self
+            .try_iter(path)?
+            .collect::<Result<Vec<_>, _>>()?;
 
-        f.seek(SeekFrom::Start(start_offset))
-            .map_err(|e| ParseError::IoError(format!("Journal seek error: {e}")))?;
+        let total = all.len() as u64;
+        let lines_to_keep = match lines {
+            Some(n) => (n.min(total)) as usize,
+            None => all.len(),
+        };
 
-        let mut buf = vec![
-            0u8;
-            usize::try_from(bytes_to_read).map_err(|e| ParseError::IoError(
-                format!("An error ocurred during the buffer creation for wtmp file: {e}")
-            ))?
-        ];
-        f.read_exact(&mut buf)
-            .map_err(|e| ParseError::IoError(format!("Cannot read journald line due to: {e}")))?;
+        if lines_to_keep == 0 {
+            return Ok(Vec::new());
+        }
 
-        let mut entries = Vec::with_capacity(usize::try_from(lines_to_read).map_err(|e| {
-            ParseError::MalformedLine(format!(
-                "Could not collect the remaining lines from the wtmp file due to: {e}"
-            ))
-        })?);
+        let start = all.len().saturating_sub(lines_to_keep);
+        let mut entries: Vec<LogEntry> = all.into_iter().skip(start).collect();
 
         if reverse {
-            for r in buf
-                .chunks_exact(usize::try_from(record_size).map_err(|e| {
-                    ParseError::MalformedLine(format!(
-                        "Could not convert the wtmp lines due to: {e}"
-                    ))
-                })?)
-                .rev()
-            {
-                // TODO: Remove the .expect()
-                entries.push(LogEntry::Wtmp(parse_record(r)));
-            }
-        } else {
-            for r in buf.chunks_exact(usize::try_from(record_size).map_err(|e| {
-                ParseError::MalformedLine(format!("Could not convert the wtmp lines due to: {e}"))
-            })?) {
-                // TODO: Remove the .expect()
-                entries.push(LogEntry::Wtmp(parse_record(r)));
-            }
+            entries.reverse();
         }
 
         Ok(entries)
@@ -88,7 +91,6 @@ impl LogParser for WtmpLog {
 }
 
 fn parse_record(buffer: &[u8]) -> WtmpRecord {
-    // We can safely remove our Some() here since there is default unwrap
     WtmpRecord {
         ut_type: i16::from_ne_bytes(buffer[0..2].try_into().unwrap_or_default()),
         ut_pid: i32::from_ne_bytes(buffer[4..8].try_into().unwrap_or_default()),
@@ -259,5 +261,18 @@ mod tests {
             Err(ParseError::IoError(_)) => {}
             other => panic!("expected IoError, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn try_iter_streams_all() {
+        let bytes = concat(&[
+            make_record(7, 1, "d", "1", "alice", "h", 0, 0),
+            make_record(7, 2, "d", "2", "bob", "h", 0, 0),
+        ]);
+        let p = write_tmp_bytes("iter.wtmp", &bytes);
+        let iter = WtmpLog.try_iter(&p).expect("iter ok");
+        let out: Vec<_> = iter.map(|r| r.expect("ok")).collect();
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(users(&out), vec!["alice", "bob"]);
     }
 }

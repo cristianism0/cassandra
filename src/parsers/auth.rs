@@ -17,6 +17,37 @@ use crate::parsers::AUTH_RE;
 //
 pub struct AuthLog;
 impl LogParser for AuthLog {
+    fn try_iter(
+        &self,
+        path: &Path,
+    ) -> Result<Box<dyn Iterator<Item = Result<LogEntry, ParseError>>>, ParseError> {
+        let f = File::open(path).map_err(|e| {
+            ParseError::IoError(format!(
+                "Cannot open file at {} due to: {e}",
+                path.display()
+            ))
+        })?;
+        let reader = BufReader::new(f);
+        let path_owned = path.to_path_buf();
+        let iter = reader.lines().map(move |line_res| {
+            let line = line_res.map_err(|e| {
+                ParseError::MalformedLine(format!(
+                    "File with malformed line was found while reading log file at {}: {e}",
+                    path_owned.display()
+                ))
+            })?;
+            let trimmed = line.trim_end();
+            let rec = parse_re(&AUTH_RE, trimmed).ok_or_else(|| {
+                ParseError::MalformedLine(format!(
+                    "Malformed auth line at {}: '{trimmed}'",
+                    path_owned.display()
+                ))
+            })?;
+            Ok(LogEntry::Auth(rec))
+        });
+        Ok(Box::new(iter))
+    }
+
     fn parser(
         &self,
         path: &Path,
@@ -26,16 +57,6 @@ impl LogParser for AuthLog {
         if let Some(0) = lines {
             return Ok(Vec::new());
         }
-
-        let f = File::open(path).map_err(|e| {
-            ParseError::IoError(format!(
-                "Cannot open file at {} due to: {e}",
-                path.display()
-            ))
-        })?;
-
-        let mut bufr = BufReader::new(f);
-        let mut bufl = String::new();
 
         let limit = lines.map(usize::try_from);
         let mut deque = match limit {
@@ -48,16 +69,8 @@ impl LogParser for AuthLog {
             None => VecDeque::new(),
         };
 
-        while bufr.read_line(&mut bufl).map_err(|e| {
-            ParseError::MalformedLine(format!(
-                "File with malformed line was found while reading log file at {}: {e}",
-                path.display()
-            ))
-        })? > 0
-        {
-            let entry = LogEntry::Auth(
-                parse_re(&AUTH_RE, bufl.trim_end()).expect("Cannot get the information line."),
-            );
+        for res in self.try_iter(path)? {
+            let entry = res.expect("Cannot get the information line.");
 
             if let Some(n) = limit
                 && deque.len()
@@ -72,13 +85,11 @@ impl LogParser for AuthLog {
             }
 
             deque.push_back(entry);
-            bufl.clear();
         }
 
         let mut entries = Vec::with_capacity(deque.len());
 
         if reverse {
-            // TODO: remove the .rev(), extremelly bad for large files for parsing and reversing. pure CPU bound.
             entries.extend(deque.into_iter().rev());
         } else {
             entries.extend(deque);
@@ -238,5 +249,27 @@ mod tests {
         let p = write_tmp("bad.log", "Oct 11 22:14:15 h p: ok\nNOT A VALID LINE\n");
         let _ = AuthLog.parser(&p, None, false);
         let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn try_iter_streams_without_collecting() {
+        let p = write_tmp(
+            "iter.log",
+            "Oct 11 22:14:15 h sshd[1]: one\nOct 11 22:14:16 h sshd[1]: two\n",
+        );
+        let iter = AuthLog.try_iter(&p).expect("iter ok");
+        let count = iter.filter(|r| r.is_ok()).count();
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn try_iter_yields_error_on_malformed() {
+        let p = write_tmp("iter-bad.log", "Oct 11 22:14:15 h p: ok\nBAD\n");
+        let results: Vec<_> = AuthLog.try_iter(&p).expect("iter ok").collect();
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(results.len(), 2);
+        assert!(results[0].is_ok());
+        assert!(results[1].is_err());
     }
 }

@@ -1,6 +1,8 @@
 use chrono::{DateTime, TimeZone, Utc};
 use clap::{Parser, Subcommand, ValueEnum};
 use regex::Regex;
+use std::collections::VecDeque;
+use std::io::{self, Write};
 use std::process::exit;
 
 use crate::display::{
@@ -59,6 +61,13 @@ struct ArgsC {
         help = "Standard full table (default)"
     )]
     standard: bool,
+    #[arg(
+        long,
+        group = "display",
+        global = true,
+        help = "Raw output: tab-separated, no wrapping (streaming, grep-friendly)"
+    )]
+    raw: bool,
 
     #[arg(
         long,
@@ -123,7 +132,9 @@ enum GravityArgs {
 
 impl ArgsC {
     pub fn table_mode(&self) -> TableMode {
-        if let Some(columns) = &self.summary {
+        if self.raw {
+            TableMode::Raw
+        } else if let Some(columns) = &self.summary {
             TableMode::Summary {
                 columns: columns.clone(),
             }
@@ -133,8 +144,7 @@ impl ArgsC {
             }
         } else if self.key.is_some() {
             TableMode::KeyValue
-        }
-        else {
+        } else {
             TableMode::Standard
         }
     }
@@ -213,27 +223,93 @@ pub fn run_cli() {
         // ignore for wtmp as requested
     }
 
+    let is_raw = matches!(tmode, TableMode::Raw);
     match args.log {
         LogKey::Sys { list_columns } => {
             if list_columns {
                 print_list_columns::<SysRecord>();
             }
-            // For time-filtered file logs, fetch all then filter, then apply lines
-            let lines_for_parser = if since_dt.is_some() || until_dt.is_some() { None } else { l };
-            print_table::<SysRecord>(&tmode, LogSource::Sys, lines_for_parser, l, revs, search_re.as_ref(), row_filters.as_deref(), since_dt.as_ref(), until_dt.as_ref());
+            if is_raw {
+                print_raw_file::<SysRecord>(
+                    LogSource::Sys,
+                    l,
+                    revs,
+                    search_re.as_ref(),
+                    row_filters.as_deref(),
+                    since_dt.as_ref(),
+                    until_dt.as_ref(),
+                );
+            } else {
+                let lines_for_parser = if since_dt.is_some() || until_dt.is_some() { None } else { l };
+                print_table::<SysRecord>(
+                    &tmode,
+                    LogSource::Sys,
+                    lines_for_parser,
+                    l,
+                    revs,
+                    search_re.as_ref(),
+                    row_filters.as_deref(),
+                    since_dt.as_ref(),
+                    until_dt.as_ref(),
+                );
+            }
         }
         LogKey::Auth { list_columns } => {
             if list_columns {
                 print_list_columns::<AuthRecord>();
             }
-            let lines_for_parser = if since_dt.is_some() || until_dt.is_some() { None } else { l };
-            print_table::<AuthRecord>(&tmode, LogSource::Auth, lines_for_parser, l, revs, search_re.as_ref(), row_filters.as_deref(), since_dt.as_ref(), until_dt.as_ref());
+            if is_raw {
+                print_raw_file::<AuthRecord>(
+                    LogSource::Auth,
+                    l,
+                    revs,
+                    search_re.as_ref(),
+                    row_filters.as_deref(),
+                    since_dt.as_ref(),
+                    until_dt.as_ref(),
+                );
+            } else {
+                let lines_for_parser = if since_dt.is_some() || until_dt.is_some() { None } else { l };
+                print_table::<AuthRecord>(
+                    &tmode,
+                    LogSource::Auth,
+                    lines_for_parser,
+                    l,
+                    revs,
+                    search_re.as_ref(),
+                    row_filters.as_deref(),
+                    since_dt.as_ref(),
+                    until_dt.as_ref(),
+                );
+            }
         }
         LogKey::Wtmp { list_columns } => {
             if list_columns {
                 print_list_columns::<WtmpRecord>();
             }
-            print_table::<WtmpRecord>(&tmode, LogSource::Wtmp, l, l, revs, search_re.as_ref(), row_filters.as_deref(), None, None);
+            if is_raw {
+                print_raw_file::<WtmpRecord>(
+                    LogSource::Wtmp,
+                    l,
+                    revs,
+                    search_re.as_ref(),
+                    row_filters.as_deref(),
+                    None,
+                    None,
+                );
+            } else {
+                print_table::<WtmpRecord>(
+                    &tmode,
+                    LogSource::Wtmp,
+                    l,
+                    l,
+                    revs,
+                    search_re.as_ref(),
+                    row_filters.as_deref(),
+                    None,
+                    None,
+                );
+            }
         }
         LogKey::Journal { scope, gravity, list_columns } => {
             if list_columns {
@@ -241,39 +317,52 @@ pub fn run_cli() {
             }
             let since_usec = since_dt.as_ref().map(|dt| datetime_to_micros(*dt));
             let until_usec = until_dt.as_ref().map(|dt| datetime_to_micros(*dt));
-            let mut j = match journal_parsed(scope, l, revs, since_usec, until_usec) {
-                Ok(le) => le,
-                Err(e) => {
-                    eprintln!(
-                        "Error: Cannot retrieve information from the journal.\nDetails: {e:#?}"
-                    );
-                    exit(2);
-                }
-            };
+            if is_raw {
+                print_raw_journal(
+                    scope,
+                    gravity,
+                    since_usec,
+                    until_usec,
+                    l,
+                    revs,
+                    search_re.as_ref(),
+                    row_filters.as_deref(),
+                );
+            } else {
+                let mut j = match journal_parsed(scope, l, revs, since_usec, until_usec) {
+                    Ok(le) => le,
+                    Err(e) => {
+                        eprintln!(
+                            "Error: Cannot retrieve information from the journal.\nDetails: {e:#?}"
+                        );
+                        exit(2);
+                    }
+                };
 
-            if let Some(g) = gravity {
-                j = apply_gravity_filter(j, &g);
-            }
-            if let Some(filters) = row_filters.as_deref() {
-                let validated = validate_row_columns::<JournalRecord>(filters);
-                if let Err(e) = validated {
-                    eprintln!("Error: Invalid --rows filter: {e}");
-                    exit(2);
+                if let Some(g) = gravity {
+                    j = apply_gravity_filter(j, &g);
                 }
-                j = apply_rows_filter::<JournalRecord>(j, filters);
-            }
-            if let Some(re) = search_re.as_ref() {
-                j = apply_search_filter::<JournalRecord>(j, re);
-            }
+                if let Some(filters) = row_filters.as_deref() {
+                    let validated = validate_row_columns::<JournalRecord>(filters);
+                    if let Err(e) = validated {
+                        eprintln!("Error: Invalid --rows filter: {e}");
+                        exit(2);
+                    }
+                    j = apply_rows_filter::<JournalRecord>(j, filters);
+                }
+                if let Some(re) = search_re.as_ref() {
+                    j = apply_search_filter::<JournalRecord>(j, re);
+                }
 
-            let table = build_journal_table::<JournalRecord>(&j, &scope, &tmode);
-            println!(
-                "{}",
-                table.unwrap_or_else(|| {
-                    eprintln!("Error: Cassandra could not create the table.");
-                    exit(2);
-                })
-            );
+                let table = build_journal_table::<JournalRecord>(&j, &scope, &tmode);
+                println!(
+                    "{}",
+                    table.unwrap_or_else(|| {
+                        eprintln!("Error: Cassandra could not create the table.");
+                        exit(2);
+                    })
+                );
+            }
         }
     }
 }
@@ -575,6 +664,520 @@ where
     println!("{}", table);
 }
 
+fn print_raw_file<T>(
+    source: LogSource,
+    lines: Option<u64>,
+    reverse: bool,
+    search_re: Option<&Regex>,
+    row_filters: Option<&[(String, String)]>,
+    since: Option<&DateTime<Utc>>,
+    until: Option<&DateTime<Utc>>,
+) where
+    T: TableDisplay + FromLogEntry,
+{
+    if let Some(filters) = row_filters
+        && let Err(e) = validate_row_columns::<T>(filters)
+    {
+        eprintln!("Error: Invalid --rows filter: {e}");
+        exit(2);
+    }
+
+    let ps = possible_paths(source);
+    let vf = match filtered_finfo(ps) {
+        Some(e) => e,
+        None => {
+            eprintln!(
+                "Error: No available path.\nHint: Cassandra may lack the required permissions.\
+		       Try running 'cap.sh' to set binary capabilities."
+            );
+            exit(2);
+        }
+    };
+
+    // Use streaming `try_iter()` instead of `parser()`'s Vec — this is the `raw` path
+    // that avoids `comfy-table` wrapping and table buffering. The iterator owns the
+    // `BufReader` and yields per line; `lines`/`reverse` are applied via a bounded
+    // `VecDeque` after filtering (keeps last N without reading whole file twice).
+    use crate::parsers::selector::LogParser;
+    use crate::parsers::{auth::AuthLog, sys::SysLog, wtmp::WtmpLog};
+
+    let boxed_iter: Box<dyn Iterator<Item = Result<crate::models::LogEntry, ParseError>>> =
+        match source {
+            LogSource::Sys => {
+                let p = SysLog;
+                match p.try_iter(&vf.path) {
+                    Ok(it) => it,
+                    Err(e) => {
+                        eprintln!("Error: Cannot open log file: {e:?}");
+                        exit(2);
+                    }
+                }
+            }
+            LogSource::Auth => {
+                let p = AuthLog;
+                match p.try_iter(&vf.path) {
+                    Ok(it) => it,
+                    Err(e) => {
+                        eprintln!("Error: Cannot open log file: {e:?}");
+                        exit(2);
+                    }
+                }
+            }
+            LogSource::Wtmp => {
+                let p = WtmpLog;
+                match p.try_iter(&vf.path) {
+                    Ok(it) => it,
+                    Err(e) => {
+                        eprintln!("Error: Cannot open wtmp file: {e:?}");
+                        exit(2);
+                    }
+                }
+            }
+        };
+
+    let has_time = since.is_some() || until.is_some();
+    let now = Utc::now();
+
+    // Helper closures for per-entry filtering (same logic as Vec helpers but streaming)
+    let matches_time = |entry: &crate::models::LogEntry| -> bool {
+        if !has_time {
+            return true;
+        }
+        // wtmp has no timestamp — ignore time filter as requested
+        if matches!(entry, crate::models::LogEntry::Wtmp(_)) {
+            return true;
+        }
+        let dt_opt = match entry {
+            crate::models::LogEntry::Sys(r) => rfc3164_to_datetime(&r.timestamp, now).ok(),
+            crate::models::LogEntry::Auth(r) => rfc3164_to_datetime(&r.timestamp, now).ok(),
+            crate::models::LogEntry::Journal(j) => {
+                if let Some(ts) = &j.source_realtime_timestamp {
+                    if let Ok(micros) = ts.parse::<i64>() {
+                        Some(Utc.timestamp_micros(micros).single().expect("valid timestamp"))
+                    } else {
+                        None
+                    }
+                } else if let Some(ts) = &j.source_boottime_timestamp {
+                    if let Ok(micros) = ts.parse::<i64>() {
+                        Some(Utc.timestamp_micros(micros).single().expect("valid timestamp"))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            crate::models::LogEntry::Wtmp(_) => None,
+        };
+        if let Some(dt) = dt_opt {
+            if let Some(since_dt) = since
+                && dt < *since_dt
+            {
+                return false;
+            }
+            if let Some(until_dt) = until
+                && dt > *until_dt
+            {
+                return false;
+            }
+            true
+        } else {
+            false
+        }
+    };
+
+    let matches_rows = |entry: &crate::models::LogEntry| -> bool {
+        if let Some(filters) = row_filters {
+            if filters.is_empty() {
+                return true;
+            }
+            if let Some(rec) = T::from_entry(entry) {
+                let fields = rec.fields();
+                let headers = T::headers();
+                for (col, val) in filters {
+                    if let Some(idx) = headers.iter().position(|h| h.eq_ignore_ascii_case(col))
+                        && fields[idx] != *val
+                    {
+                        return false;
+                    }
+                }
+                true
+            } else {
+                false
+            }
+        } else {
+            true
+        }
+    };
+
+    let matches_search = |entry: &crate::models::LogEntry| -> bool {
+        if let Some(re) = search_re {
+            if let Some(rec) = T::from_entry(entry) {
+                rec.fields().iter().any(|f| re.is_match(f))
+            } else {
+                false
+            }
+        } else {
+            true
+        }
+    };
+
+    // For `raw` we want to stream to stdout with `writeln!` and periodic `flush`
+    // to avoid blocking the terminal. Cases:
+    // - `lines` Some: keep last N in a bounded deque (needs buffering, but only N)
+    // - `reverse` without lines: collect all, reverse, then stream
+    // - otherwise: stream directly
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+
+    // Print header first (tab-separated, no wrapping)
+    let headers = T::headers();
+    if writeln!(handle, "{}", headers.join("\t")).is_err() {
+        exit(1);
+    }
+
+    if let Some(n) = lines {
+        let n_usize = n as usize;
+        if n_usize == 0 {
+            let _ = handle.flush();
+            return;
+        }
+        let mut deque: VecDeque<crate::models::LogEntry> = VecDeque::with_capacity(n_usize);
+        for res in boxed_iter {
+            let entry = match res {
+                Ok(e) => e,
+                Err(e) => {
+                    eprintln!("Warning: skipping malformed line: {e:?}");
+                    continue;
+                }
+            };
+            if !matches_time(&entry) || !matches_rows(&entry) || !matches_search(&entry) {
+                continue;
+            }
+            if deque.len() == n_usize {
+                deque.pop_front();
+            }
+            deque.push_back(entry);
+        }
+        if reverse {
+            for entry in deque.into_iter().rev() {
+                if let Some(rec) = T::from_entry(&entry) {
+                    let line = rec.fields().join("\t");
+                    if writeln!(handle, "{line}").is_err() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            for entry in deque {
+                if let Some(rec) = T::from_entry(&entry) {
+                    let line = rec.fields().join("\t");
+                    if writeln!(handle, "{line}").is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+        let _ = handle.flush();
+    } else if reverse {
+        let mut filtered: Vec<crate::models::LogEntry> = Vec::new();
+        for res in boxed_iter {
+            let entry = match res {
+                Ok(e) => e,
+                Err(e) => {
+                    eprintln!("Warning: skipping malformed line: {e:?}");
+                    continue;
+                }
+            };
+            if !matches_time(&entry) || !matches_rows(&entry) || !matches_search(&entry) {
+                continue;
+            }
+            filtered.push(entry);
+        }
+        filtered.reverse();
+        for entry in filtered {
+            if let Some(rec) = T::from_entry(&entry) {
+                let line = rec.fields().join("\t");
+                if writeln!(handle, "{line}").is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = handle.flush();
+    } else {
+        // Direct streaming — no accumulation, flush every 100 lines
+        let mut count = 0usize;
+        for res in boxed_iter {
+            let entry = match res {
+                Ok(e) => e,
+                Err(e) => {
+                    eprintln!("Warning: skipping malformed line: {e:?}");
+                    continue;
+                }
+            };
+            if !matches_time(&entry) || !matches_rows(&entry) || !matches_search(&entry) {
+                continue;
+            }
+            if let Some(rec) = T::from_entry(&entry) {
+                let line = rec.fields().join("\t");
+                if writeln!(handle, "{line}").is_err() {
+                    break;
+                }
+                count += 1;
+                if count % 100 == 0 {
+                    let _ = handle.flush();
+                }
+            }
+        }
+        let _ = handle.flush();
+    }
+}
+
+fn print_raw_journal(
+    scope: JournalScope,
+    gravity: Option<GravityArgs>,
+    since_usec: Option<u64>,
+    until_usec: Option<u64>,
+    lines: Option<u64>,
+    reverse: bool,
+    search_re: Option<&Regex>,
+    row_filters: Option<&[(String, String)]>,
+) {
+    if let Some(filters) = row_filters
+        && let Err(e) = validate_row_columns::<JournalRecord>(filters)
+    {
+        eprintln!("Error: Invalid --rows filter: {e}");
+        exit(2);
+    }
+
+    use crate::parsers::journal::JournalLog;
+    use crate::parsers::selector::JournalParser;
+
+    let jlog = JournalLog;
+    let mut journal = match jlog.connect(scope.clone()) {
+        Ok(j) => j,
+        Err(e) => {
+            eprintln!("Error: Cannot retrieve information from the journal.\nDetails: {e:#?}");
+            exit(2);
+        }
+    };
+
+    // For `since` we stream all in range and apply `lines` via deque;
+    // for no `since` we use efficient `previous_skip(lines.unwrap_or(50))` inside `try_iter`.
+    let lines_for_iter = if since_usec.is_some() { None } else { lines };
+    let iter = match jlog.try_iter(&mut journal, lines_for_iter, since_usec, until_usec) {
+        Ok(it) => it,
+        Err(e) => {
+            eprintln!("Error: Cannot read journal: {e:#?}");
+            exit(2);
+        }
+    };
+
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+    let headers = JournalRecord::headers();
+    if writeln!(handle, "{}", headers.join("\t")).is_err() {
+        exit(1);
+    }
+
+    // Per-entry filters (gravity/rows/search). Time already handled by native seek.
+    let mut filtered_deque: Option<VecDeque<crate::models::LogEntry>> =
+        if since_usec.is_some() && lines.is_some() {
+            Some(VecDeque::with_capacity(lines.unwrap() as usize))
+        } else {
+            None
+        };
+    let mut filtered_vec: Vec<crate::models::LogEntry> = Vec::new();
+
+    // If we need to keep last N for `since` + lines, use deque; if reverse without lines, collect
+    if filtered_deque.is_some() {
+        let n_usize = lines.unwrap() as usize;
+        for res in iter {
+            let entry = match res {
+                Ok(e) => e,
+                Err(e) => {
+                    eprintln!("Warning: skipping journal entry: {e:?}");
+                    continue;
+                }
+            };
+            if let Some(g) = &gravity
+                && !matches_gravity(&entry, g)
+            {
+                continue;
+            }
+            if let Some(filters) = row_filters
+                && !{
+                    if let Some(rec) = JournalRecord::from_entry(&entry) {
+                        let fields = rec.fields();
+                        let headers = JournalRecord::headers();
+                        let mut ok = true;
+                        for (col, val) in filters {
+                            if let Some(idx) = headers.iter().position(|h| h.eq_ignore_ascii_case(col))
+                                && fields[idx] != *val
+                            {
+                                ok = false;
+                                break;
+                            }
+                        }
+                        ok
+                    } else {
+                        false
+                    }
+                }
+            {
+                continue;
+            }
+            if let Some(re) = search_re
+                && !{
+                    if let Some(rec) = JournalRecord::from_entry(&entry) {
+                        rec.fields().iter().any(|f| re.is_match(f))
+                    } else {
+                        false
+                    }
+                }
+            {
+                continue;
+            }
+            let deque = filtered_deque.as_mut().unwrap();
+            if deque.len() == n_usize {
+                deque.pop_front();
+            }
+            deque.push_back(entry);
+        }
+        let deque = filtered_deque.unwrap();
+        if reverse {
+            for entry in deque.into_iter().rev() {
+                if let Some(rec) = JournalRecord::from_entry(&entry) {
+                    let _ = writeln!(handle, "{}", rec.fields().join("\t"));
+                }
+            }
+        } else {
+            for entry in deque {
+                if let Some(rec) = JournalRecord::from_entry(&entry) {
+                    let _ = writeln!(handle, "{}", rec.fields().join("\t"));
+                }
+            }
+        }
+        let _ = handle.flush();
+        return;
+    }
+
+    if reverse && filtered_deque.is_none() {
+        // Need to collect all for reverse when not using deque
+        for res in iter {
+            let entry = match res {
+                Ok(e) => e,
+                Err(e) => {
+                    eprintln!("Warning: skipping journal entry: {e:?}");
+                    continue;
+                }
+            };
+            if let Some(g) = &gravity
+                && !matches_gravity(&entry, g)
+            {
+                continue;
+            }
+            if let Some(filters) = row_filters {
+                let ok = if let Some(rec) = JournalRecord::from_entry(&entry) {
+                    let fields = rec.fields();
+                    let headers = JournalRecord::headers();
+                    let mut ok = true;
+                    for (col, val) in filters {
+                        if let Some(idx) = headers.iter().position(|h| h.eq_ignore_ascii_case(col))
+                            && fields[idx] != *val
+                        {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    ok
+                } else {
+                    false
+                };
+                if !ok {
+                    continue;
+                }
+            }
+            if let Some(re) = search_re {
+                let ok = if let Some(rec) = JournalRecord::from_entry(&entry) {
+                    rec.fields().iter().any(|f| re.is_match(f))
+                } else {
+                    false
+                };
+                if !ok {
+                    continue;
+                }
+            }
+            filtered_vec.push(entry);
+        }
+        filtered_vec.reverse();
+        for entry in filtered_vec {
+            if let Some(rec) = JournalRecord::from_entry(&entry) {
+                let _ = writeln!(handle, "{}", rec.fields().join("\t"));
+            }
+        }
+        let _ = handle.flush();
+        return;
+    }
+
+    // Direct streaming for non-since, no-lines, no-reverse, or for non-since with lines
+    // already handled via `previous_skip` in `try_iter`, so we can stream directly.
+    let mut count = 0usize;
+    for res in iter {
+        let entry = match res {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("Warning: skipping journal entry: {e:?}");
+                continue;
+            }
+        };
+        if let Some(g) = &gravity
+            && !matches_gravity(&entry, g)
+        {
+            continue;
+        }
+        if let Some(filters) = row_filters {
+            let ok = if let Some(rec) = JournalRecord::from_entry(&entry) {
+                let fields = rec.fields();
+                let headers = JournalRecord::headers();
+                let mut ok = true;
+                for (col, val) in filters {
+                    if let Some(idx) = headers.iter().position(|h| h.eq_ignore_ascii_case(col))
+                        && fields[idx] != *val
+                    {
+                        ok = false;
+                        break;
+                    }
+                }
+                ok
+            } else {
+                false
+            };
+            if !ok {
+                continue;
+            }
+        }
+        if let Some(re) = search_re {
+            let ok = if let Some(rec) = JournalRecord::from_entry(&entry) {
+                rec.fields().iter().any(|f| re.is_match(f))
+            } else {
+                false
+            };
+            if !ok {
+                continue;
+            }
+        }
+        if let Some(rec) = JournalRecord::from_entry(&entry) {
+            let _ = writeln!(handle, "{}", rec.fields().join("\t"));
+            count += 1;
+            if count % 100 == 0 {
+                let _ = handle.flush();
+            }
+        }
+    }
+    let _ = handle.flush();
+}
+
 fn possible_paths(lsource: LogSource) -> Vec<&'static SourceCandidate> {
     SOURCES.iter().filter(|sc| sc.source == lsource).collect()
 }
@@ -608,6 +1211,7 @@ mod tests {
             compact,
             key,
             standard,
+            raw: false,
             rows: None,
             lines: None,
             reverse: None,

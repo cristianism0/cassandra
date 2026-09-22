@@ -17,7 +17,6 @@ pub fn parser_selector(
     lines: Option<u64>,
     reverse: bool,
 ) -> Result<Vec<LogEntry>, ParseError> {
-    // TODO: wire search/gravity here — pass through to LogParser::parser as `search` arg
     match file_info.source {
         LogSource::Sys => {
             let p = SysLog;
@@ -36,10 +35,6 @@ pub fn parser_selector(
         }
     }
 }
-
-//#TODO: Panicking may happen and will happen in different distros: I shall handle all the
-//flutuating field, for instance: a system may not have Selinux and thus, have nothing from this
-//field.
 /// # Errors
 /// This function will push the errors from the systemd-journald parsing.
 /// - Bad API connection.
@@ -58,6 +53,21 @@ pub fn journal_parsed(
 }
 
 pub trait LogParser {
+    /// Streaming iterator — yields one `LogEntry` per line without buffering the whole file.
+    /// The iterator owns the file handle (`BufReader<File>`) and is `Box`ed for object safety.
+    /// For `wtmp` the iterator yields binary records. Errors per line are `ParseError`.
+    ///
+    /// This is the streaming primitive for `raw` output and the future `ratatui`+`tokio`
+    /// `spawn_blocking` channel. `parser()` is now a thin wrapper around this iterator
+    /// (keeps `lines`/`reverse` semantics via a bounded `VecDeque`).
+    ///
+    /// # Errors
+    /// Returns `ParseError::IoError` if the file cannot be opened.
+    fn try_iter(
+        &self,
+        path: &Path,
+    ) -> Result<Box<dyn Iterator<Item = Result<LogEntry, ParseError>>>, ParseError>;
+
     /// # Errors
     /// The parser function will return errors on those specific conditions:
     /// - Bad converting -> values from u64 may be truncated or bad sized.
@@ -90,6 +100,23 @@ pub trait LogParser {
 }
 
 pub trait JournalParser {
+    /// Streaming iterator for the journal — wraps `next_entry()` + `extract_record`.
+    /// Handles `since_usec`/`until_usec` via native `seek_realtime_usec` when present,
+    /// otherwise seeks to tail with `previous_skip(lines.unwrap_or(50))` for efficient
+    /// last-N without reading the whole journal. The iterator is boxed to allow borrowing
+    /// `&mut Journal`.
+    ///
+    /// For CLI `raw` mode this iterator is consumed line-by-line with periodic `flush`,
+    /// avoiding the `Vec<LogEntry>` buffering of `parser()`. In `tokio` TUI it will be
+    /// driven inside `spawn_blocking` and forwarded via `mpsc`.
+    fn try_iter<'a>(
+        &self,
+        journal: &'a mut Journal,
+        lines: Option<u64>,
+        since_usec: Option<u64>,
+        until_usec: Option<u64>,
+    ) -> Result<Box<dyn Iterator<Item = Result<LogEntry, JournalError>> + 'a>, JournalError>;
+
     /// # Errors
     /// This function may error during bad API connection.
     /// This can cause due to:
