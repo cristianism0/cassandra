@@ -1,7 +1,7 @@
 name: cassandra
 arch: amd64
 platform: linux
-version: 0.1.0
+version: "${VERSION}"
 section: utils
 priority: optional
 maintainer: cristian <csg2099@gmail.com>

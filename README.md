@@ -29,7 +29,7 @@ A fast, Rust-based CLI tool for reading Linux system logs. Supports multiple log
 
 ### From Source
 
-Requires Rust 1.85+ (edition 2024):
+Requires Rust 1.88+ (edition 2024):
 
 ```sh
 # Install Rust if needed
@@ -89,7 +89,7 @@ These flags are **mutually exclusive** and work with any command:
 cassandra auth --compact 40
 
 # Only show timestamp and message columns
-cassandra sys --summary time,msg
+cassandra sys --summary timestamp,message
 
 # Key/value output for a single field
 cassandra journal --key message
@@ -112,7 +112,7 @@ cassandra journal --key message
 # Last 50 auth entries, chronological order
 cassandra auth -l 50
 
-# Last 20 journal entries, oldest first
+# Last 20 journal entries, newest first
 cassandra journal -l 20 -r
 
 # Time filtering (UTC)

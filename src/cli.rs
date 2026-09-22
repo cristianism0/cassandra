@@ -266,7 +266,9 @@ pub fn run_cli() {
     }
 
     let is_wtmp = matches!(args.log, LogKey::Wtmp { .. });
-    if is_wtmp { since_dt.is_some() || until_dt.is_some(); }
+    if is_wtmp {
+        since_dt.is_some() || until_dt.is_some();
+    }
 
     let is_raw = matches!(tmode, TableMode::Raw);
     match args.log {
@@ -410,7 +412,7 @@ pub fn run_cli() {
                             "Error: Cannot retrieve entries from journal (scope={scope:?}) — journal unavailable or no permission."
                         );
                         eprintln!(
-                            "Hint: Check that systemd-journald is running, 
+                            "Hint: Check that systemd-journald is running,
                             try --scope user vs --scope system, and ensure read access — try 'sudo ./cap.sh' or 'journalctl --verify'."
                         );
                         eprintln!("Details: {e:#?}");
@@ -442,11 +444,11 @@ pub fn run_cli() {
                     eprintln!("Error: No entries to display for journal (scope={scope:?}) — table empty after filtering (0 rows).");
                     eprintln!("Hint: Try relaxing filters: remove -e/--search, -F/--rows, widen -S/--since/-U/--until, increase -l, or use --raw.
                         Check --list-columns and try without gravity.");
-                    eprintln!("Details: 
-                        scope={scope:?}, gravity={gravity_dbg:?}, 
-                        search={}, rows={}, since={}, until={}, 
-                        lines={:?}, reverse={}; result 0 
-                        rows (journal empty or all filtered)", 
+                    eprintln!("Details:
+                        scope={scope:?}, gravity={gravity_dbg:?},
+                        search={}, rows={}, since={}, until={},
+                        lines={:?}, reverse={}; result 0
+                        rows (journal empty or all filtered)",
                         search_re.is_some(),
                         row_filters.is_some(),
                         since_usec.is_some(),
@@ -711,7 +713,9 @@ fn print_table<T>(
 
     let ps = possible_paths(source);
     let attempted: Vec<String> = ps.iter().map(|p| p.path.to_string()).collect();
-    let vf = if let Some(e) = filtered_finfo(ps) { e } else {
+    let vf = if let Some(e) = filtered_finfo(ps) {
+        e
+    } else {
         eprintln!("Error: No readable log file found for {source:?}.");
         eprintln!(
             "Hint: Check that log files exist ({})
@@ -731,12 +735,12 @@ fn print_table<T>(
         Err(e) => match e {
             ParseError::IoError(e) => {
                 eprintln!(
-                    "Error: I/O error reading {} at {}: {e}",
+                    "Error: I/O error reading {} at {}.",
                     format!("{source:?}").to_lowercase(),
                     vf.path.display()
                 );
                 eprintln!(
-                    "Hint: Ensure the binary has read access — try 'sudo ./cap.sh', check file permissions, or run with sudo."
+                    "Hint: Ensure the binary has read access — check file permissions, or run with sudo. Check README for more details."
                 );
                 eprintln!("Details: {e}");
                 exit(2);
@@ -748,7 +752,7 @@ fn print_table<T>(
                     vf.path.display()
                 );
                 eprintln!(
-                    "Hint: Check the file with --raw or 'head {}' — RFC 3164 expects 
+                    "Hint: Check the file with --raw or 'head {}' — RFC 3164 expects
                     '<pri>Mon DD HH:MM:SS host process: msg'. Use --raw to skip malformed lines with a warning.",
                     vf.path.display()
                 );
@@ -787,7 +791,9 @@ fn print_table<T>(
         ret = apply_lines_limit(ret, lines_outer, reverse);
     }
 
-    let table = if let Some(e) = build_table::<T>(&ret, mode) { e } else {
+    let table = if let Some(e) = build_table::<T>(&ret, mode) {
+        e
+    } else {
         eprintln!(
             "Error: No entries to display for {} — table empty after filtering (0 rows).",
             format!("{source:?}").to_lowercase()
@@ -842,10 +848,12 @@ fn print_raw_file<T>(
 
     let ps = possible_paths(source);
     let attempted: Vec<String> = ps.iter().map(|p| p.path.to_string()).collect();
-    let vf = if let Some(e) = filtered_finfo(ps) { e } else {
+    let vf = if let Some(e) = filtered_finfo(ps) {
+        e
+    } else {
         eprintln!("Error: No readable log file found for {source:?}.");
         eprintln!(
-            "Hint: Check that log files exist ({}) and that Cassandra has read access — 
+            "Hint: Check that log files exist ({}) and that Cassandra has read access —
             try 'sudo ./cap.sh' or run with sudo. See 'cassandra {} --help' for expected paths.",
             attempted.join(", "),
             format!("{source:?}").to_lowercase()

@@ -11,6 +11,10 @@ fi
 
 cargo build --release
 
+# injects on nfpm.yaml
+VERSION=$(echo "$TAG" | sed 's/^v//')
+export VERSION
+
 rm -rf dist/stage
 mkdir -p dist/stage
 
@@ -20,7 +24,7 @@ nfpm pkg --config nfpm.yaml --packager deb --target dist/
 nfpm pkg --config nfpm.yaml --packager rpm --target dist/
 nfpm pkg --config nfpm.yaml --packager archlinux --target dist/
 
-tar_name="cassandra_${TAG}_Linux_x86_64.tar.gz"
+tar_name="cassandra_${VERSION}_Linux_x86_64.tar.gz"
 
 tar -czf "dist/${tar_name}" -C dist/stage .
 
