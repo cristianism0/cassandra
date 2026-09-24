@@ -1,28 +1,12 @@
-use comfy_table::ContentArrangement;
-use comfy_table::presets::{UTF8_FULL, UTF8_FULL_CONDENSED}; //TODO: move to ASCII_FULL for max compatibility
+use comfy_table::presets::{ASCII_FULL, ASCII_FULL_CONDENSED};
 use std::fmt::Write as _;
 
 use crate::models::{
     FromLogEntry, LogEntry,
-    auth::AuthRecord,
-    journal::{JOURNAL_KERNEL_COL, JournalRecord, JournalScope},
-    sys::SysRecord,
-    wtmp::WtmpRecord,
+    journal::{JOURNAL_KERNEL_COL, JournalScope},
 };
 
-use crate::display::{RecordType, TableDisplay, TableMode};
-
-fn truncate_content(s: &str, max_width: usize) -> String {
-    let char_count = s.chars().count();
-    if char_count <= max_width {
-        return s.to_string();
-    }
-    if max_width <= 3 {
-        return s.chars().take(max_width).collect();
-    }
-    let truncated: String = s.chars().take(max_width - 3).collect();
-    format!("{truncated}...")
-}
+use crate::display::{TableDisplay, TableMode};
 
 pub fn group<T: FromLogEntry>(entries: &[LogEntry]) -> Vec<&T> {
     entries.iter().filter_map(T::from_entry).collect()
@@ -64,65 +48,21 @@ fn build_table_with<T: TableDisplay>(
     };
 
     let style = match max_col_width {
-        Some(_) => UTF8_FULL_CONDENSED,
-        None => UTF8_FULL,
+        Some(_) => ASCII_FULL_CONDENSED,
+        None => ASCII_FULL,
     };
 
     let mut table = comfy_table::Table::new();
     table
         .load_style(style)
-        .set_content_arrangement(ContentArrangement::Disabled)
         .enforce_styling()
         .set_header(headers);
 
-    let effective_width = max_col_width;
-    let default_truncate: Option<usize> = if effective_width.is_none() {
-        Some(60)
-    } else {
-        None
-    };
-
     for row in rows {
         let fields = row.fields();
-        let cells: Vec<String> = col_map
-            .iter()
-            .map(|&i| {
-                if let Some(w) = effective_width {
-                    truncate_content(&fields[i], w)
-                } else if let Some(def) = default_truncate {
-                    if fields[i].chars().count() > def {
-                        truncate_content(&fields[i], def)
-                    } else {
-                        fields[i].clone()
-                    }
-                } else {
-                    fields[i].clone()
-                }
-            })
-            .collect();
+        let cells: Vec<String> = col_map.iter().map(|&i| fields[i].clone()).collect();
         table.add_row(cells);
     }
-
-    if let Some(width) = effective_width {
-        let constraints: Vec<_> = (0..table.column_count())
-            .map(|_| {
-                comfy_table::ColumnConstraint::UpperBoundary(comfy_table::Width::Fixed(
-                    u16::try_from(width).unwrap_or(u16::MAX),
-                ))
-            })
-            .collect();
-        table.set_constraints(constraints);
-    } else if let Some(def) = default_truncate {
-        let constraints: Vec<_> = (0..table.column_count())
-            .map(|_| {
-                comfy_table::ColumnConstraint::UpperBoundary(comfy_table::Width::Fixed(
-                    u16::try_from(def).unwrap_or(u16::MAX),
-                ))
-            })
-            .collect();
-        table.set_constraints(constraints);
-    }
-
     table.trim_fmt()
 }
 
@@ -245,30 +185,12 @@ pub fn build_journal_table<T: TableDisplay + FromLogEntry>(
     ))
 }
 
-#[must_use]
-pub fn render_all_tables(records: Vec<RecordType<'_>>, mode: &TableMode) -> Vec<String> {
-    let mut rendered = Vec::with_capacity(records.len());
-    for record in records {
-        let table_opt = match record {
-            RecordType::Sys(entries) => build_table::<SysRecord>(entries, mode),
-            RecordType::Auth(entries) => build_table::<AuthRecord>(entries, mode),
-            RecordType::Wtmp(entries) => build_table::<WtmpRecord>(entries, mode),
-            RecordType::Journal(entries, scope) => {
-                build_journal_table::<JournalRecord>(entries, scope, mode)
-            }
-        };
-        if let Some(table) = table_opt {
-            rendered.push(table);
-        }
-    }
-    rendered
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::display::TableMode;
     use crate::models::journal::JournalScope;
+    use crate::models::{auth::AuthRecord, journal::JournalRecord, sys::SysRecord};
 
     fn sys_entries() -> Vec<LogEntry> {
         vec![
@@ -319,18 +241,6 @@ mod tests {
             transport: Some("journal".to_string()),
             uid: None,
         }))]
-    }
-
-    #[test]
-    fn truncate_short_string_unchanged() {
-        assert_eq!(truncate_content("abc", 10), "abc");
-        assert_eq!(truncate_content("abc", 3), "abc");
-    }
-
-    #[test]
-    fn truncate_long_string_adds_ellipsis() {
-        assert_eq!(truncate_content("abcdef", 5), "ab...");
-        assert_eq!(truncate_content("abcdef", 2), "ab");
     }
 
     #[test]
@@ -434,16 +344,5 @@ mod tests {
         )
         .expect("table");
         assert!(!out.contains("hostname"));
-    }
-
-    #[test]
-    fn render_all_tables_skips_empty() {
-        let sys = sys_entries();
-        let empty: Vec<LogEntry> = vec![];
-        let out = render_all_tables(
-            vec![RecordType::Sys(&sys), RecordType::Auth(&empty)],
-            &TableMode::Standard,
-        );
-        assert_eq!(out.len(), 1);
     }
 }

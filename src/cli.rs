@@ -33,9 +33,6 @@ use crate::utils::time::{datetime_to_micros, parse_human_time, rfc3164_to_dateti
 
 #[derive(Parser, Debug)]
 #[command(version, about, styles=rose_pine_moon())]
-// clap derive needs plain `bool` fields for the simple CLI flags (`--raw`,
-// `--standard`, `--no-pager`, `--reverse`); enums would add boilerplate with no
-// user-facing gain, so the pedantic struct-excessive-bools lint is allowed here.
 #[allow(clippy::struct_excessive_bools)]
 struct ArgsC {
     #[arg(
@@ -78,7 +75,7 @@ struct ArgsC {
         help = "Raw output: tab-separated, no wrapping (streaming, grep-friendly; no pager)"
     )]
     raw: bool,
-    #[arg(long, global = true, help = "Disable pager (print directly, no less)")]
+    #[arg(long, global = true, help = "Disable pager, print directly")]
     no_pager: bool,
 
     #[arg(
@@ -86,7 +83,7 @@ struct ArgsC {
         short = 'F',
         value_delimiter = ',',
         global = true,
-        help = "Filter rows by column=value — e.g. --rows host=myhost,process=sshd (-F)"
+        help = "Filter rows by column=value — e.g. --rows host=myhost,process=sshd"
     )]
     rows: Option<Vec<String>>,
     #[arg(short, long, global = true, help = "Limit to last N lines")]
@@ -102,21 +99,21 @@ struct ArgsC {
         long,
         short = 'e',
         global = true,
-        help = "Regex search across all fields — e.g. --search 'error|failed' (-e)"
+        help = "Regex search across all fields — e.g. --search 'error|failed'"
     )]
     search: Option<String>,
     #[arg(
         long,
         short = 'S',
         global = true,
-        help = "Show entries since time — e.g. --since '2024-01-01', '15 days ago', '2h ago', 'now-2h', 'today', 'yesterday' (UTC) (-S)"
+        help = "Show entries since time — e.g. --since '2024-01-01', '15 days ago', '2h ago', 'now-2h', 'today', 'yesterday' (UTC)"
     )]
     since: Option<String>,
     #[arg(
         long,
         short = 'U',
         global = true,
-        help = "Show entries until time — e.g. --until '2024-01-01' (UTC) (-U)"
+        help = "Show entries until time — e.g. --until '2024-01-01' (UTC)"
     )]
     until: Option<String>,
     #[command(subcommand)]
@@ -187,9 +184,6 @@ fn table_cli_args() -> ArgsC {
     ArgsC::parse()
 }
 
-// `run_cli` is a linear CLI flow (parse → validate → dispatch); splitting it into
-// smaller functions would only shuffle shared state around without making the code
-// clearer, hence the pedantic size lint is allowed here.
 #[allow(clippy::too_many_lines)]
 pub fn run_cli() {
     let args = table_cli_args();
@@ -229,7 +223,7 @@ pub fn run_cli() {
             Ok(v) => Some(v),
             Err(e) => {
                 eprintln!("Error: Invalid --rows filter: {e}");
-                eprintln!("Hint: Use --rows col=value[,col2=value2] — e.g. --rows host=myhost,process=sshd (-F).
+                eprintln!("Hint: Use --rows col=value[,col2=value2] — e.g. --rows host=myhost,process=sshd.
                     Quote values with spaces.");
                 eprintln!("Details: expected col=value, got '{raw:?}'");
                 exit(2);
@@ -245,7 +239,7 @@ pub fn run_cli() {
                 eprintln!("Error: Invalid --since '{s}': {e}");
                 eprintln!(
                     "Hint: Try --since '2024-01-01', '2024-01-01T10:00:00', '15 days ago',
-                    '2h ago', 'now-2h', 'today', 'yesterday' (UTC). Short: -S"
+                    '2h ago', 'now-2h', 'today', 'yesterday' (UTC)."
                 );
                 eprintln!("Details: {e}");
                 exit(2);
@@ -258,7 +252,7 @@ pub fn run_cli() {
             Ok(dt) => Some(dt),
             Err(e) => {
                 eprintln!("Error: Invalid --until '{s}': {e}");
-                eprintln!("Hint: Try --until '2024-01-01' or 'today' (UTC). Short: -U");
+                eprintln!("Hint: Try --until '2024-01-01' or 'today' (UTC).");
                 eprintln!("Details: {e}");
                 exit(2);
             }
@@ -283,6 +277,8 @@ pub fn run_cli() {
     }
 
     let is_raw = matches!(tmode, TableMode::Raw);
+
+    
     match args.log {
         LogKey::Sys { list_columns } => {
             if list_columns {
@@ -375,7 +371,7 @@ pub fn run_cli() {
                     revs,
                     search_re.as_ref(),
                     row_filters.as_deref(),
-                    None,
+                    None, //WTMP has no since
                     None,
                     no_pager,
                 );
@@ -668,8 +664,6 @@ fn apply_lines_limit(
     reverse: bool,
 ) -> Vec<crate::models::LogEntry> {
     if let Some(n) = lines {
-        // `--lines` is a u64 from the CLI; usize is 64-bit here and an absurd
-        // value on 32-bit targets is clamped instead of silently truncating.
         let n_usize = usize::try_from(n).unwrap_or(usize::MAX);
         let len = entries.len();
         if len <= n_usize {
@@ -697,8 +691,6 @@ fn apply_lines_limit(
     }
 }
 
-// All knobs are the caller's filters and are passed together on purpose; grouping
-// them into a context struct would churn every call site without benefit.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn print_table<T>(
     mode: &TableMode,
@@ -830,13 +822,10 @@ fn print_table<T>(
         );
         exit(2);
     };
-    // For table output, use pager (less -S -R) when stdout is a TTY and --no-pager not set.
-    // Raw output (tab-separated) never uses pager — use --raw for pipe/grep.
     let output = format!("{table}\n");
     pager_or_print(&output, no_pager);
 }
 
-// Streaming CLI flow (open → filter → print); same rationale as `print_table`.
 #[allow(clippy::too_many_lines)]
 fn print_raw_file<T>(
     source: LogSource,
@@ -1128,7 +1117,6 @@ fn print_raw_file<T>(
     }
 }
 
-// Same linear-pipeline rationale as `print_table`/`print_raw_file`.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn print_raw_journal(
     scope: JournalScope,
@@ -1272,8 +1260,6 @@ fn print_raw_journal(
         return;
     }
 
-    // Reaching this point means `filtered_deque` was None (the Some branch above
-    // already returned), so only `reverse` matters here.
     if reverse {
         for res in iter {
             let entry = match res {
@@ -1331,7 +1317,6 @@ fn print_raw_journal(
         return;
     }
 
-    // already handled via `previous_skip` in `try_iter`, so we can stream directly.
     let mut count = 0usize;
     for res in iter {
         let entry = match res {
