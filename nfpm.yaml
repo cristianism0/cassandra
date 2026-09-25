@@ -16,39 +16,23 @@ contents:
     dst: /usr/bin/cassandra
     file_info:
       mode: 0755
-  - src: ./cap.sh
-    dst: /usr/share/cassandra/cap.sh
-    file_info:
-      mode: 0755
   - src: ./README.md
     dst: /usr/share/doc/cassandra/README.md
   - src: ./LICENSE
     dst: /usr/share/doc/cassandra/LICENSE
-scripts:
-  postinstall: ./nfpm/scripts/postinstall.sh
-  postremove: ./nfpm/scripts/postremove.sh
 overrides:
   deb:
     depends:
       - libc6 (>= 2.34)
       - libsystemd0
-    scripts:
-      postinstall: ./nfpm/scripts/postinstall.sh
-      postremove: ./nfpm/scripts/postremove.sh
   rpm:
     depends:
       - glibc >= 2.34
       - systemd-libs
-    scripts:
-      postinstall: ./nfpm/scripts/postinstall.sh
-      postremove: ./nfpm/scripts/postremove.sh
   archlinux:
     depends:
       - glibc>=2.34
       - systemd-libs
-    scripts:
-      postinstall: ./nfpm/scripts/postinstall.sh
-      postremove: ./nfpm/scripts/postremove.sh
 rpm:
   summary: Fast Rust CLI for Linux logs
   packager: cristian <csg2099@gmail.com>

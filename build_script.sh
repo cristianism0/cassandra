@@ -18,7 +18,7 @@ export VERSION
 rm -rf dist/stage
 mkdir -p dist/stage
 
-cp target/release/cassandra cap.sh LICENSE README.md dist/stage/
+cp target/release/cassandra LICENSE README.md dist/stage/
 
 nfpm pkg --config nfpm.yaml --packager deb --target dist/
 nfpm pkg --config nfpm.yaml --packager rpm --target dist/
