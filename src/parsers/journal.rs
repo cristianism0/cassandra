@@ -25,31 +25,28 @@ impl JournalParser for JournalLog {
                 ))
             })?;
             let until = until_usec;
-            // For `since` with `lines`, efficient last-N requires buffering all in range;
-            // caller (raw/table) will handle `lines` via bounded VecDeque after filtering.
-            let iter = std::iter::from_fn(move || {
-                match journal.next_entry() {
-                    Ok(Some(_)) => {
-                        let ts = match journal.timestamp_usec() {
-                            Ok(t) => t,
-                            Err(e) => {
-                                return Some(Err(JournalError::IoError(format!(
-                                    "Cannot get journal timestamp: {e:#?}"
-                                ))))
-                            }
-                        };
-                        if let Some(u) = until
-                            && ts > u
-                        {
-                            return None;
+
+            let iter = std::iter::from_fn(move || match journal.next_entry() {
+                Ok(Some(_)) => {
+                    let ts = match journal.timestamp_usec() {
+                        Ok(t) => t,
+                        Err(e) => {
+                            return Some(Err(JournalError::IoError(format!(
+                                "Cannot get journal timestamp: {e:#?}"
+                            ))));
                         }
-                        Some(Ok(LogEntry::Journal(Box::new(extract_record(journal)))))
+                    };
+                    if let Some(u) = until
+                        && ts > u
+                    {
+                        return None;
                     }
-                    Ok(None) => None,
-                    Err(e) => Some(Err(JournalError::IoError(format!(
-                        "An error ocurred during the journal lines parsing: {e:#?}"
-                    )))),
+                    Some(Ok(LogEntry::Journal(Box::new(extract_record(journal)))))
                 }
+                Ok(None) => None,
+                Err(e) => Some(Err(JournalError::IoError(format!(
+                    "An error ocurred during the journal lines parsing: {e:#?}"
+                )))),
             });
             Ok(Box::new(iter))
         } else {
@@ -68,29 +65,27 @@ impl JournalParser for JournalLog {
                 })?;
             }
             let until = until_usec;
-            let iter = std::iter::from_fn(move || {
-                match journal.next_entry() {
-                    Ok(Some(_)) => {
-                        if let Some(u) = until {
-                            let ts = match journal.timestamp_usec() {
-                                Ok(t) => t,
-                                Err(e) => {
-                                    return Some(Err(JournalError::IoError(format!(
-                                        "Cannot get journal timestamp: {e:#?}"
-                                    ))))
-                                }
-                            };
-                            if ts > u {
-                                return None;
+            let iter = std::iter::from_fn(move || match journal.next_entry() {
+                Ok(Some(_)) => {
+                    if let Some(u) = until {
+                        let ts = match journal.timestamp_usec() {
+                            Ok(t) => t,
+                            Err(e) => {
+                                return Some(Err(JournalError::IoError(format!(
+                                    "Cannot get journal timestamp: {e:#?}"
+                                ))));
                             }
+                        };
+                        if ts > u {
+                            return None;
                         }
-                        Some(Ok(LogEntry::Journal(Box::new(extract_record(journal)))))
                     }
-                    Ok(None) => None,
-                    Err(e) => Some(Err(JournalError::IoError(format!(
-                        "An error ocurred during the journal lines parsing: {e:#?}"
-                    )))),
+                    Some(Ok(LogEntry::Journal(Box::new(extract_record(journal)))))
                 }
+                Ok(None) => None,
+                Err(e) => Some(Err(JournalError::IoError(format!(
+                    "An error ocurred during the journal lines parsing: {e:#?}"
+                )))),
             });
             Ok(Box::new(iter))
         }
@@ -108,16 +103,10 @@ impl JournalParser for JournalLog {
             return Ok(Vec::new());
         }
 
-        // `parser()` is now a thin wrapper over `try_iter()` for non-`since` case,
-        // but keeps the `since + lines` last-N buffering (needs to read all in range).
         if since_usec.is_some() {
-            // For `since`, `try_iter` iterates from `since`; we need to collect all then
-            // keep last N to preserve `lines` semantics (last N in range).
             let iter = self.try_iter(journal, None, since_usec, until_usec)?;
             let mut entries: Vec<LogEntry> = iter.collect::<Result<Vec<_>, _>>()?;
             if let Some(n) = lines {
-                // `lines` is bounded by the entries actually read; clamp rather
-                // than truncate an unrealistic value on 32-bit targets.
                 let n_usize = usize::try_from(n).unwrap_or(usize::MAX);
                 if entries.len() > n_usize {
                     let skip = entries.len() - n_usize;
@@ -129,7 +118,6 @@ impl JournalParser for JournalLog {
             }
             Ok(entries)
         } else {
-            // Efficient path: `try_iter` already did `previous_skip(limit)` from tail
             let iter = self.try_iter(journal, lines, None, until_usec)?;
             let mut entries: Vec<LogEntry> = iter.collect::<Result<Vec<_>, _>>()?;
             if reverse {

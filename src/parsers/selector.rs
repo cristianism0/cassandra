@@ -6,8 +6,6 @@ use crate::models::{Finfo, LogEntry, LogSource, journal::JournalError, journal::
 use crate::parsers::ParseError;
 use crate::parsers::{auth::AuthLog, journal::JournalLog, sys::SysLog, wtmp::WtmpLog};
 
-/// Select the parser for `file_info` and parse the file into a `Vec<LogEntry>`.
-///
 /// # Errors
 /// Returns [`ParseError`] when the file cannot be opened or a line does not
 /// follow the expected format.
@@ -34,8 +32,6 @@ pub fn parser_selector(
         }
     }
 }
-/// Fetch journal entries for `journal_scope`, applying `lines`/`reverse`/time filters.
-///
 /// # Errors
 /// Returns [`JournalError`] when the journal socket cannot be opened or the
 /// journal cannot be read.
@@ -53,11 +49,6 @@ pub fn journal_parsed(
 }
 
 pub trait LogParser {
-    /// Streaming iterator — yields one `LogEntry` per line without buffering the whole file.
-    /// This is the streaming primitive for `raw` output and the future `ratatui`+`tokio`
-    /// `spawn_blocking` channel. `parser()` is now a thin wrapper around this iterator
-    /// (keeps `lines`/`reverse` semantics via a bounded `VecDeque`).
-    ///
     /// # Errors
     /// Returns [`ParseError`] when the file cannot be opened or read.
     fn try_iter(
@@ -65,8 +56,6 @@ pub trait LogParser {
         path: &Path,
     ) -> Result<Box<dyn Iterator<Item = Result<LogEntry, ParseError>>>, ParseError>;
 
-    /// Parse the whole file into a `Vec<LogEntry>`.
-    ///
     /// # Errors
     /// Returns [`ParseError`] when the file cannot be opened or a line is malformed.
     fn parser(
@@ -76,8 +65,6 @@ pub trait LogParser {
         reverse: bool,
     ) -> Result<Vec<LogEntry>, ParseError>;
 
-    /// Check that the given path can be opened for reading.
-    ///
     /// # Errors
     /// Returns [`ParseError::IoError`] when the path does not exist or cannot be opened.
     fn check_access(&self, path: &Path) -> Result<(), ParseError> {
@@ -96,11 +83,6 @@ pub trait LogParser {
 }
 
 pub trait JournalParser {
-    /// Streaming iterator for the journal — wraps `next_entry()` + `extract_record`.
-    /// For CLI `raw` mode this iterator is consumed line-by-line with periodic `flush`,
-    /// avoiding the `Vec<LogEntry>` buffering of `parser()`. In `tokio` TUI it will be
-    /// driven inside `spawn_blocking` and forwarded via `mpsc`.
-    ///
     /// # Errors
     /// Returns [`JournalError`] when the journal cannot be read.
     fn try_iter<'a>(
@@ -111,8 +93,6 @@ pub trait JournalParser {
         until_usec: Option<u64>,
     ) -> Result<Box<dyn Iterator<Item = Result<LogEntry, JournalError>> + 'a>, JournalError>;
 
-    /// Open a connection to the systemd journal for the given scope.
-    ///
     /// # Errors
     /// Returns [`JournalError::Unavailable`] when the journal socket cannot be opened.
     fn connect(&self, scope: JournalScope) -> Result<Journal, JournalError> {
@@ -131,8 +111,6 @@ pub trait JournalParser {
         })
     }
 
-    /// Parse journal entries into a `Vec<LogEntry>`.
-    ///
     /// # Errors
     /// Returns [`JournalError`] when the journal cannot be read.
     fn parser(

@@ -18,9 +18,6 @@ fn month_str_to_num(m: &str) -> Option<u32> {
     }
 }
 
-/// Parse RFC3164 timestamp like "Oct 11 22:14:15" or "Oct  5 08:00:01" into `DateTime<Utc>` with year inference.
-/// Uses `now` as reference for year inference; if the resulting datetime is in the future, subtract one year.
-///
 /// # Errors
 /// Returns a `String` describing the error when `timestamp` is not a valid
 /// RFC 3164 timestamp (wrong number of parts, unknown month, or invalid day/time).

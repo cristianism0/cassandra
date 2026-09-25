@@ -8,6 +8,7 @@ use crate::models::{
 
 use crate::display::{TableDisplay, TableMode};
 
+// Unpack the type
 pub fn group<T: FromLogEntry>(entries: &[LogEntry]) -> Vec<&T> {
     entries.iter().filter_map(T::from_entry).collect()
 }

@@ -57,8 +57,6 @@ impl LogParser for SysLog {
             return Ok(Vec::new());
         }
 
-        // `parser()` keeps the historical behavior: `lines` is last N via bounded deque,
-        // It is now a thin wrapper over `try_iter()` for consistency and future `iter` rename.
         let limit = lines.map(|n| {
             usize::try_from(n).map_err(|e| {
                 ParseError::IoError(format!(
@@ -80,7 +78,6 @@ impl LogParser for SysLog {
         };
 
         for res in self.try_iter(path)? {
-            // `try_iter()` itself yields `Err` for callers that want streaming error handling.
             let entry = res.expect("Cannot get the information due to bad regex match.");
 
             if let Some(n) = &limit
@@ -131,10 +128,7 @@ mod tests {
     fn write_tmp(name: &str, contents: &str) -> std::path::PathBuf {
         let id = CTR.fetch_add(1, Ordering::SeqCst);
         let mut p = std::env::temp_dir();
-        p.push(format!(
-            "cassandra-sys-{}-{id}-{name}",
-            std::process::id()
-        ));
+        p.push(format!("cassandra-sys-{}-{id}-{name}", std::process::id()));
         std::fs::write(&p, contents).expect("write tmp fixture");
         p
     }
@@ -167,8 +161,7 @@ mod tests {
 
     #[test]
     fn parse_line_without_pid() {
-        let r = parse_re(&SYS_RE, "Oct 11 22:14:15 myhost cron: job ran")
-            .expect("should parse");
+        let r = parse_re(&SYS_RE, "Oct 11 22:14:15 myhost cron: job ran").expect("should parse");
         assert_eq!(r.process, "cron");
         assert_eq!(r.message, "job ran");
     }
@@ -279,7 +272,9 @@ mod tests {
         for res in iter {
             let e = res.expect("line ok");
             match e {
-                LogEntry::Sys(r) => assert!(r.message == "one" || r.message == "two" || r.message == "three"),
+                LogEntry::Sys(r) => {
+                    assert!(r.message == "one" || r.message == "two" || r.message == "three")
+                }
                 _ => panic!("expected sys"),
             }
             count += 1;

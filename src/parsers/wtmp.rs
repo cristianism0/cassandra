@@ -32,9 +32,6 @@ impl LogParser for WtmpLog {
             return Ok(Box::new(std::iter::empty()));
         }
 
-        // Reading the whole file into memory: `file_len` is the file size in bytes.
-        // usize is 64-bit here, and a >4 GiB wtmp file on a 32-bit target is
-        // unrealistic, so the truncation lint is allowed for this cast.
         #[allow(clippy::cast_possible_truncation)]
         let mut buf = vec![0u8; file_len as usize];
         f.seek(SeekFrom::Start(0))
@@ -42,10 +39,8 @@ impl LogParser for WtmpLog {
         f.read_exact(&mut buf)
             .map_err(|e| ParseError::IoError(format!("Cannot read wtmp file due to: {e}")))?;
 
-        // Own the buffer and iterate chunk by chunk, yielding owned LogEntry
         let iter = (0..total_records).map(move |idx| {
             let start = usize::try_from(idx * record_size).expect("Bad convertion to usize.");
-            // `record_size` is the fixed wtmp record size (384), which always fits usize.
             let end = start + usize::try_from(record_size).expect("wtmp record size fits usize");
             let chunk = &buf[start..end];
             Ok(LogEntry::Wtmp(parse_record(chunk)))
@@ -60,8 +55,6 @@ impl LogParser for WtmpLog {
         lines: Option<u64>,
         reverse: bool,
     ) -> Result<Vec<LogEntry>, ParseError> {
-        // Preserve previous semantics: `lines` is last N, `reverse` flips.
-        // Now implemented via `try_iter()` for consistency.
         if let Some(0) = lines {
             return Ok(Vec::new());
         }
@@ -70,7 +63,6 @@ impl LogParser for WtmpLog {
 
         let total = all.len() as u64;
         let lines_to_keep = match lines {
-            // `n` is clamped to `all.len()` first, so this conversion can never fail.
             Some(n) => usize::try_from(n.min(total)).expect("clamped to all.len()"),
             None => all.len(),
         };

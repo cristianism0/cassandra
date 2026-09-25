@@ -6,8 +6,6 @@ use std::path::Path;
 use crate::models::{ContentFormat, FiData, Finfo, FsKind, LogSource, PathStatus, SourceCandidate};
 
 impl Finfo {
-    /// Gather all useful information about the file and its path.
-    ///
     /// # Errors
     /// Returns [`PathStatus::Indeterminate`] when the file metadata cannot be read,
     /// or [`PathStatus::NotFound`] when even the metadata lookup fails.
@@ -91,10 +89,7 @@ mod tests {
     fn leaked_path(contents: &str) -> &'static str {
         let id = CTR.fetch_add(1, Ordering::SeqCst);
         let mut p = std::env::temp_dir();
-        p.push(format!(
-            "cassandra-finfo-{}-{id}.log",
-            std::process::id()
-        ));
+        p.push(format!("cassandra-finfo-{}-{id}.log", std::process::id()));
         std::fs::write(&p, contents).expect("write tmp fixture");
         Box::leak(p.to_string_lossy().into_owned().into_boxed_str())
     }
