@@ -11,9 +11,7 @@ A fast, Rust-based CLI tool for reading Linux system logs. Supports multiple log
 - **Multiple log sources**: `journald`, `auth.log`/`secure`, `syslog`/`messages`, `wtmp`
 - **Flexible output**: standard table, compact, summary columns, or key/value pairs
 - **Cross-distro**: auto-detects common log paths (Debian/Ubuntu, RHEL/Fedora, etc.)
-- **No root required**: use `cap.sh` to grant read access to protected logs
 - **Built with Rust 2024 edition**
-
 ## Supported Log Sources
 
 | Command | Description | Typical Paths |
@@ -44,19 +42,6 @@ cargo build --release
 
 The binary will be at `target/release/cassandra`. For a debug build: `cargo build` (output at `target/debug/cassandra`).
 
-### Granting Log Access (Recommended)
-
-Most log files under `/var/log/` are root-only. Instead of running as root, grant the binary the `cap_dac_read_search` capability:
-
-```sh
-# For release build
-sudo ./cap.sh
-
-# For debug build
-sudo ./cap.sh target/debug/cassandra
-```
-
-> Re-run `cap.sh` after every rebuild—the capability is stripped on recompile.
 
 ## Usage
 
@@ -139,7 +124,7 @@ Run `cassandra --help` or `cassandra <command> --help` for the full reference.
 
 - **RFC 3164 only**: Legacy BSD Syslog format. Most distros still emit this locally; RFC 5424 support is planned.
 - **CLI first**: TUI/async interface is planned for future releases.
-- **Binary capabilities over sudo**: `cap_dac_read_search` is safer than running as root.
+- **Binary abilities over sudo**: Previous, the binary was used with `cap_dac_read_search` that was removed for safety. To check priviled logs you will need sudo. 
 
 ## Project Structure
 

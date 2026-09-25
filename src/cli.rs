@@ -421,7 +421,7 @@ pub fn run_cli() {
                         );
                         eprintln!(
                             "Hint: Check that systemd-journald is running,
-                            try --scope user vs --scope system, and ensure read access — try 'sudo ./cap.sh' or 'journalctl --verify'."
+                            try --scope user vs --scope system, and ensure read access."
                         );
                         eprintln!("Details: {e:#?}");
                         exit(2);
@@ -725,7 +725,7 @@ fn print_table<T>(
         eprintln!("Error: No readable log file found for {source:?}.");
         eprintln!(
             "Hint: Check that log files exist ({})
-            and that Cassandra has read access — try 'sudo ./cap.sh' or run with sudo.
+            and that Cassandra has read access or run with sudo.
             See 'cassandra {} --help' for expected paths.",
             attempted.join(", "),
             format!("{source:?}").to_lowercase()
@@ -876,7 +876,7 @@ fn print_raw_file<T>(
                             vf.path.display()
                         );
                         eprintln!(
-                            "Hint: Ensure the binary has read access — try 'sudo ./cap.sh', check permissions, or run with sudo."
+                            "Hint: Ensure the binary has read access — check permissions, or run with sudo."
                         );
                         eprintln!("Details: {e:?}");
                         exit(2);
@@ -894,7 +894,7 @@ fn print_raw_file<T>(
                             vf.path.display()
                         );
                         eprintln!(
-                            "Hint: Ensure the binary has read access — try 'sudo ./cap.sh', check permissions, or run with sudo."
+                            "Hint: Ensure the binary has read access — check permissions, or run with sudo."
                         );
                         eprintln!("Details: {e:?}");
                         exit(2);
@@ -911,7 +911,7 @@ fn print_raw_file<T>(
                             vf.path.display()
                         );
                         eprintln!(
-                            "Hint: Check /var/log/wtmp exists and has read access — try 'sudo ./cap.sh'."
+                            "Hint: Check /var/log/wtmp exists and has read access.."
                         );
                         eprintln!("Details: {e:?}");
                         exit(2);
@@ -1148,7 +1148,7 @@ fn print_raw_journal(
             );
             eprintln!(
                 "Hint: Check that systemd-journald is running,
-                try --scope user vs --scope system, and ensure read access — try 'sudo ./cap.sh' or 'journalctl --verify'."
+                try --scope user vs --scope system, and ensure read access."
             );
             eprintln!("Details: {e:#?}");
             exit(2);
